@@ -45,10 +45,32 @@ def respond(to_number, message) -> None:
     """ Send a message via Twilio WhatsApp """
     TWILIO_WHATSAPP_PHONE_NUMBER = "whatsapp:" + TWILIO_WHATSAPP_NUMBER
     twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    from_whatsapp_number = TWILIO_WHATSAPP_PHONE_NUMBER
-    twilio_client.messages.create(body=message,
-                                  from_=from_whatsapp_number,
-                                  to=to_number)
+    
+    # Dividir el mensaje si es demasiado largo (WhatsApp tiene un límite de aproximadamente 1600 caracteres)
+    max_length = 1500  # Por seguridad usamos un poco menos que el límite real
+    
+    if len(message) > max_length:
+        # Dividir el mensaje en chunks
+        chunks = [message[i:i+max_length] for i in range(0, len(message), max_length)]
+        
+        # Enviar cada chunk como un mensaje separado
+        for i, chunk in enumerate(chunks):
+            # Añadir indicador de parte si hay múltiples mensajes
+            if len(chunks) > 1:
+                chunk = f"Parte {i+1}/{len(chunks)}: {chunk}"
+                
+            twilio_client.messages.create(
+                body=chunk,
+                from_=TWILIO_WHATSAPP_PHONE_NUMBER,
+                to=to_number
+            )
+    else:
+        # Enviar como un solo mensaje si es lo suficientemente corto
+        twilio_client.messages.create(
+            body=message,
+            from_=TWILIO_WHATSAPP_PHONE_NUMBER,
+            to=to_number
+        )
 
 
 @app.post('/whatsapp-endpoint')
