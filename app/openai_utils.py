@@ -42,6 +42,8 @@ SUPPORTED_MODELS = {
     "gpt-4o", 
     "gpt-4o-mini",
     "gpt-4-0125-preview",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
     # Amazon Anthropic models
     "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
     "bedrock/anthropic.claude-3-opus-20240229-v1:0",
@@ -78,7 +80,7 @@ def summarise_conversation(history):
             conversation += f"Bot: {item['bot_response']}"
 
     openai_response = gpt_without_functions(
-                        model="gpt-3.5-turbo-0125",
+                        model="gpt-4.1-mini",
                         stream=False,
                         messages=[
                             {'role': 'system', 'content': SUMMARY_PROMPT}, 
