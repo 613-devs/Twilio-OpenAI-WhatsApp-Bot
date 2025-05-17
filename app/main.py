@@ -75,6 +75,7 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
 
     # Format the system prompt with the conversation summary and current date
     system_prompt = SYSTEM_PROMPT.format(
+         ProductName="WhatsApp Assistant",  # O el nombre que prefieras
             history_summary=history_summary,
             today=datetime.now().date()
     )
