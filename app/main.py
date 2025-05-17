@@ -82,6 +82,7 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
     score="N/A",
     confidence="N/A",
     indicator="N/A",
+    **{"key factor": "N/A"}  # Añade esta línea para manejar la variable con espacio
 )
 
     # Get a response from OpenAI's GPT model
