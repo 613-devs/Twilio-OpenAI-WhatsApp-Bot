@@ -45,10 +45,23 @@ def respond(to_number, message) -> None:
     """ Send a message via Twilio WhatsApp """
     TWILIO_WHATSAPP_PHONE_NUMBER = "whatsapp:" + TWILIO_WHATSAPP_NUMBER
     twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    from_whatsapp_number = TWILIO_WHATSAPP_PHONE_NUMBER
-    twilio_client.messages.create(body=message,
-                                  from_=from_whatsapp_number,
-                                  to=to_number)
+    
+    # Si el mensaje es demasiado largo (más de 1600 caracteres), dividirlo
+    if len(message) > 1600:
+        chunks = [message[i:i+1600] for i in range(0, len(message), 1600)]
+        for chunk in chunks:
+            twilio_client.messages.create(
+                body=chunk,
+                from_=TWILIO_WHATSAPP_PHONE_NUMBER,
+                to=to_number
+            )
+    else:
+        # Enviar el mensaje completo si es lo suficientemente corto
+        twilio_client.messages.create(
+            body=message,
+            from_=TWILIO_WHATSAPP_PHONE_NUMBER,
+            to=to_number
+        )
 
 
 @app.post('/whatsapp-endpoint')
@@ -97,7 +110,6 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
     openai_response = gpt_without_functions(
                         model="gpt-4.1-mini",
                         stream=False,
-                        max_tokens=2000,  # Aumenta el límite de tokens para respuestas más largas
                         messages=[
                             {'role': 'system', 'content': system_prompt}, 
                             {'role': 'assistant', 'content': "Hi there, how can I help you?"}
