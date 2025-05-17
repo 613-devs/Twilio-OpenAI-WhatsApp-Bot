@@ -97,6 +97,7 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
     openai_response = gpt_without_functions(
                         model="gpt-4.1-mini",
                         stream=False,
+                        max_tokens=2000,  # Aumenta el límite de tokens para respuestas más largas
                         messages=[
                             {'role': 'system', 'content': system_prompt}, 
                             {'role': 'assistant', 'content': "Hi there, how can I help you?"}
