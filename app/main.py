@@ -75,11 +75,15 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
 
     # Format the system prompt with the conversation summary and current date
     system_prompt = SYSTEM_PROMPT.format(
-         ProductName="WhatsApp Assistant",  # O el nombre que prefieras
-            history_summary=history_summary,
-            today=datetime.now().date(),
-            OverallIndicator="helpful and friendly",
-    )
+    ProductName="WhatsApp Assistant",
+    history_summary=history_summary,
+    today=datetime.now().date(),
+    OverallIndicator="helpful and friendly",
+    score="N/A",
+    confidence="N/A",
+    indicator="N/A",
+    key_factor="N/A"
+)
 
     # Get a response from OpenAI's GPT model
     openai_response = gpt_without_functions(
