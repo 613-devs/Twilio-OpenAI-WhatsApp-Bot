@@ -82,12 +82,11 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
     score="N/A",
     confidence="N/A",
     indicator="N/A",
-    key_factor="N/A"
 )
 
     # Get a response from OpenAI's GPT model
     openai_response = gpt_without_functions(
-                        model="gpt-4o",
+                        model="gpt-4.1-mini",
                         stream=False,
                         messages=[
                             {'role': 'system', 'content': system_prompt}, 
