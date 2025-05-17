@@ -47,7 +47,7 @@ def respond(to_number, message) -> None:
     twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
     
     # Dividir el mensaje si es demasiado largo (WhatsApp tiene un límite de aproximadamente 1600 caracteres)
-    max_length = 1500  # Por seguridad usamos un poco menos que el límite real
+    max_length = 3000  # Por seguridad usamos un poco menos que el límite real
     
     if len(message) > max_length:
         # Dividir el mensaje en chunks
