@@ -79,10 +79,18 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
     history_summary=history_summary,
     today=datetime.now().date(),
     OverallIndicator="helpful and friendly",
-    score="N/A",
-    confidence="N/A",
-    indicator="N/A",
-    **{"key factor": "N/A"}  # Añade esta línea para manejar la variable con espacio
+    score="85",
+    confidence="High",
+    indicator="🟢",
+    **{
+        "key factor": "user support excellence",
+        "Topic 1": "User Experience",
+        "Topic 2": "Response Time",
+        "Insight 1": "Quick and helpful responses",
+        "Insight 2": "Available 24/7 for assistance",
+        "Insight 3": "Personalized conversation experience",
+        "assessment": "Excellent"
+    }
 )
 
     # Get a response from OpenAI's GPT model
