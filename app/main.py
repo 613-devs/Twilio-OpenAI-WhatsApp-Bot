@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from twilio.rest import Client
 
 from app.cookies_utils import set_cookies, get_cookies, clear_cookies
-from app.prompts import SYSTEM_PROMPT
+from app.prompts import get_google_doc_content
 from app.openai_utils import gpt_without_functions, summarise_conversation
 from app.redis_utils import redis_conn
 from app.logger_utils import logger
@@ -95,25 +95,32 @@ async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str =
     # Summarize the conversation history
     history_summary = summarise_conversation(history)
 
-    # Format the system prompt with the conversation summary and current date
-    system_prompt = SYSTEM_PROMPT.format(
-    ProductName="WhatsApp Assistant",
-    history_summary=history_summary,
-    today=datetime.now().date(),
-    OverallIndicator="helpful and friendly",
-    score="85",
-    confidence="High",
-    indicator="🟢",
-    **{
-        "key factor": "user support excellence",
-        "Topic 1": "User Experience",
-        "Topic 2": "Response Time",
-        "Insight 1": "Quick and helpful responses",
-        "Insight 2": "Available 24/7 for assistance",
-        "Insight 3": "Personalized conversation experience",
-        "assessment": "Excellent"
-    }
-)
+    # Obtener el prompt dinámico desde Google Docs
+    try:
+        raw_prompt = get_google_doc_content()
+    except Exception as e:
+        logger.error(f"Failed to fetch system prompt from Google Docs: {e}")
+        raw_prompt = "You are a helpful assistant. (Default prompt used due to error.)"
+
+    # Formatear el prompt con los datos necesarios
+    system_prompt = raw_prompt.format(
+        ProductName="WhatsApp Assistant",
+        history_summary=history_summary,
+        today=datetime.now().date(),
+        OverallIndicator="helpful and friendly",
+        score="85",
+        confidence="High",
+        indicator="🟢",
+        **{
+            "key factor": "user support excellence",
+            "Topic 1": "User Experience",
+            "Topic 2": "Response Time",
+            "Insight 1": "Quick and helpful responses",
+            "Insight 2": "Available 24/7 for assistance",
+            "Insight 3": "Personalized conversation experience",
+            "assessment": "Excellent"
+        }
+    )
 
     # Get a response from OpenAI's GPT model
     openai_response = gpt_without_functions(
