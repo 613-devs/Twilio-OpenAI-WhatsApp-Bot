@@ -55,9 +55,9 @@ def respond(to_number, message) -> None:
         
         # Enviar cada chunk como un mensaje separado
         for i, chunk in enumerate(chunks):
-            # Añadir indicador de parte si hay múltiples mensajes
+            # Añadir indicador de part si hay múltiples mensajes
             if len(chunks) > 1:
-                chunk = f"Parte {i+1}/{len(chunks)}: {chunk}"
+                chunk = f"Part {i+1}/{len(chunks)}: {chunk}"
                 
             twilio_client.messages.create(
                 body=chunk,
