@@ -7,6 +7,7 @@ from fastapi import Form, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from twilio.rest import Client
+import requests
 
 from app.cookies_utils import set_cookies, get_cookies, clear_cookies
 from app.prompts import get_google_doc_content
@@ -74,13 +75,33 @@ def respond(to_number, message) -> None:
 
 
 @app.post('/whatsapp-endpoint')
-async def whatsapp_endpoint(request: Request, From: str = Form(...), Body: str = Form(...)):
+async def whatsapp_endpoint(
+    request: Request,
+    From: str = Form(...),
+    Body: str = Form(""),
+    NumMedia: str = Form("0"),
+    MediaUrl0: str = Form(None),
+    MediaContentType0: str = Form(None)
+):
     logger.info(f'WhatsApp endpoint triggered...')
     logger.info(f'Request: {request}')
     logger.info(f'Body: {Body}')
     logger.info(f'From: {From}')
+    logger.info(f'NumMedia: {NumMedia}, MediaUrl0: {MediaUrl0}, MediaContentType0: {MediaContentType0}')
 
     query = Body
+    # Procesar media si existe
+    if NumMedia and int(NumMedia) > 0 and MediaUrl0:
+        if MediaContentType0 and MediaContentType0.startswith("audio"):
+            # Descargar el audio
+            audio_response = requests.get(MediaUrl0)
+            with open("audio.ogg", "wb") as f:
+                f.write(audio_response.content)
+            # Aquí deberías llamar a tu función de transcripción real
+            query = "[AUDIO RECIBIDO: aquí iría la transcripción]"
+        elif MediaContentType0 and MediaContentType0.startswith("image"):
+            query = f"[IMAGEN RECIBIDA: {MediaUrl0}]"
+
     phone_no = From.replace('whatsapp:+', '')
     chat_session_id = phone_no
 
