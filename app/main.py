@@ -147,14 +147,22 @@ async def whatsapp_endpoint(
     )
 
     # Get a response from OpenAI's GPT model
-    openai_response = gpt_without_functions(
-                        model="gpt-4.1-mini",
-                        stream=False,
-                        messages=[
-                            {'role': 'system', 'content': system_prompt}, 
-                            {'role': 'assistant', 'content': "Hi there, how can I help you?"}
-                        ] + history)
-    chatbot_response = openai_response.choices[0].message.content.strip()
+    try:
+        openai_response = gpt_without_functions(
+            model="gpt-4.1-mini",
+            stream=False,
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'assistant', 'content': "Hi there, how can I help you?"}
+            ] + history)
+        if not openai_response or not hasattr(openai_response, 'choices') or not openai_response.choices:
+            logger.error(f"OpenAI response is invalid: {openai_response}")
+            chatbot_response = "[Error: No se pudo obtener respuesta de la IA]"
+        else:
+            chatbot_response = openai_response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.exception(f"Error al llamar a OpenAI: {e}")
+        chatbot_response = f"[Error: Excepción en la IA: {e} - Marca oculta: 9e1b2]"
 
     # Append the assistant's response to the chat history on Redis
     history.append({'role': 'assistant', 'content': chatbot_response},)
