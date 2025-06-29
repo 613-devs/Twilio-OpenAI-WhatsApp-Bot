@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from twilio.rest import Client
 import requests
+import openai
 
 from app.cookies_utils import set_cookies, get_cookies, clear_cookies
 from app.prompts import get_google_doc_content
@@ -161,6 +162,22 @@ async def whatsapp_endpoint(
 
     # Send the assistant's response back to the user via WhatsApp
     respond(From, chatbot_response)
+
+
+def gpt_with_web_search(messages, user_location=None, context_size="medium"):
+    tools = [{
+        "type": "web_search_preview",
+        "search_context_size": context_size,
+    }]
+    if user_location:
+        tools[0]["user_location"] = user_location
+
+    response = openai.responses.create(
+        model="gpt-4.1-mini",  # o el modelo que soporte web_search_preview
+        tools=tools,
+        input=messages,
+    )
+    return response.output_text
 
 
 if __name__ == '__main__':
