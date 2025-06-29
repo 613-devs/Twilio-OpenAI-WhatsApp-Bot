@@ -93,7 +93,6 @@ async def whatsapp_endpoint(
     # Procesar media si existe
     if NumMedia and int(NumMedia) > 0 and MediaUrl0:
         if MediaContentType0 and MediaContentType0.startswith("audio"):
-            # Descargar el audio
             audio_response = requests.get(MediaUrl0)
             with open("audio.ogg", "wb") as f:
                 f.write(audio_response.content)
@@ -101,6 +100,9 @@ async def whatsapp_endpoint(
             query = "[AUDIO RECIBIDO: aquí iría la transcripción]"
         elif MediaContentType0 and MediaContentType0.startswith("image"):
             query = f"[IMAGEN RECIBIDA: {MediaUrl0}]"
+    # Si no hay texto ni media, responde con un mensaje amigable
+    if not query or query.strip() == "":
+        query = "Recibí tu mensaje, pero no pude procesar el contenido. Por favor envía texto, una imagen o un audio."
 
     phone_no = From.replace('whatsapp:+', '')
     chat_session_id = phone_no
