@@ -89,3 +89,34 @@ def summarise_conversation(history):
     chatbot_response = openai_response.choices[0].message.content.strip()
 
     return chatbot_response
+
+
+def gpt_with_web_search(messages, stream=False):
+    """ GPT model with web search capability. """
+    model = "gpt-4.1-mini"  # Specify the model you want to use
+    if model not in SUPPORTED_MODELS:
+        return False
+    response = completion(
+        model=model, 
+        messages=messages,
+        temperature=TEMPERATURE,
+        max_tokens=MAX_TOKENS,
+        top_p=TOP_P,
+        frequency_penalty=FREQUENCY_PENALTY,
+        presence_penalty=PRESENCE_PENALTY,
+        stream=stream
+    )
+    return response
+
+
+def handle_conversation_with_search(history, system_prompt):
+    """Handle conversation with web search capability."""
+    messages = [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'assistant', 'content': "Hi there, how can I help you?"}
+    ] + history
+
+    # Si quieres usar búsqueda web:
+    chatbot_response = gpt_with_web_search(messages)
+
+    return chatbot_response
