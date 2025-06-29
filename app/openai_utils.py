@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from litellm import completion
 from app.prompts import SUMMARY_PROMPT
+import logging
 
 load_dotenv()
 
@@ -95,18 +96,33 @@ def gpt_with_web_search(messages, stream=False):
     """ GPT model with web search capability. """
     model = "gpt-4.1-mini"  # Specify the model you want to use
     if model not in SUPPORTED_MODELS:
-        return False
-    response = completion(
-        model=model, 
-        messages=messages,
-        temperature=TEMPERATURE,
-        max_tokens=MAX_TOKENS,
-        top_p=TOP_P,
-        frequency_penalty=FREQUENCY_PENALTY,
-        presence_penalty=PRESENCE_PENALTY,
-        stream=stream
-    )
-    return response
+        logging.error(f"Model {model} not supported.")
+        return "[Error: Modelo no soportado]"
+    try:
+        response = completion(
+            model=model, 
+            messages=messages,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            top_p=TOP_P,
+            frequency_penalty=FREQUENCY_PENALTY,
+            presence_penalty=PRESENCE_PENALTY,
+            stream=stream
+        )
+        # Manejo robusto de la respuesta
+        if hasattr(response, 'choices') and response.choices:
+            content = getattr(response.choices[0].message, 'content', None)
+            if content:
+                return content.strip()
+            else:
+                logging.error("La respuesta de OpenAI no contiene contenido.")
+                return "[Error: No se recibió contenido de la IA]"
+        else:
+            logging.error(f"Respuesta inesperada de OpenAI: {response}")
+            return "[Error: Respuesta inesperada de la IA]"
+    except Exception as e:
+        logging.exception(f"Error al llamar a OpenAI: {e}")
+        return "[Error: No se pudo obtener respuesta de la IA]"
 
 
 def handle_conversation_with_search(history, system_prompt):
