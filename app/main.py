@@ -2,6 +2,7 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+import warnings
 
 from fastapi import Form, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,9 @@ from app.prompts import get_google_doc_content
 from app.openai_utils import gpt_without_functions, summarise_conversation
 from app.redis_utils import redis_conn
 from app.logger_utils import logger
+
+# Suprimir warnings de Pydantic
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 # Load environment variables from a .env file
 load_dotenv()
