@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from fastapi import Form, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from twilio.rest import Client
 import requests
@@ -170,6 +171,7 @@ async def whatsapp_endpoint(
 
     # Send the assistant's response back to the user via WhatsApp
     respond(From, chatbot_response)
+    return PlainTextResponse("OK", status_code=200)
 
 
 def gpt_with_web_search(messages, user_location=None, context_size="medium"):
