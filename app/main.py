@@ -153,6 +153,7 @@ async def whatsapp_endpoint(
 
     # Get a response from OpenAI's GPT model
     try:
+        logger.info(f"Enviando a OpenAI: {system_prompt[:100]}... + history ({len(history)})")
         openai_response = gpt_without_functions(
             model="gpt-4.1-mini",
             stream=False,
@@ -160,11 +161,13 @@ async def whatsapp_endpoint(
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'assistant', 'content': "Hi there, how can I help you?"}
             ] + history)
+        logger.info(f"Respuesta OpenAI: {openai_response}")
         if not openai_response or not hasattr(openai_response, 'choices') or not openai_response.choices:
             logger.error(f"OpenAI response is invalid: {openai_response}")
             chatbot_response = "[Error: No se pudo obtener respuesta de la IA]"
         else:
             chatbot_response = openai_response.choices[0].message.content.strip()
+            logger.info(f"Respuesta IA limpia: {chatbot_response}")
     except Exception as e:
         logger.exception(f"Error al llamar a OpenAI: {e}")
         chatbot_response = f"[Error: Excepción en la IA: {e} - Marca oculta: 9e1b2]"
