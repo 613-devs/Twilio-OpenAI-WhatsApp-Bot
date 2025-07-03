@@ -405,11 +405,34 @@ async def whatsapp_endpoint(
                 cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
             cleaned_history.append(cleaned_msg)
         
-        # Limitar historial para OpenAI - mantener solo los últimos 20 mensajes
-        # para evitar exceder el límite de tokens con imágenes
-        if len(cleaned_history) > 20:
-            cleaned_history = cleaned_history[-20:]
+        # Aplicar limpieza agresiva para evitar context window overflow
+        # 1. Limitar a máximo 10 mensajes (no 20) para dar más espacio a la imagen actual
+        if len(cleaned_history) > 10:
+            cleaned_history = cleaned_history[-10:]
             logger.info(f"Historial limitado para OpenAI a {len(cleaned_history)} mensajes")
+        
+        # 2. Remover cualquier dato de imagen base64 del historial (solo mantener textos)
+        for msg in cleaned_history:
+            if isinstance(msg.get('content'), list):
+                # Si el contenido es una lista (imagen + texto), solo mantener el texto
+                text_only_content = []
+                for item in msg['content']:
+                    if item.get('type') == 'text':
+                        text_only_content.append(item)
+                # Si había imagen, reemplazar con texto descriptivo
+                if len(msg['content']) > len(text_only_content):
+                    text_only_content.append({
+                        "type": "text", 
+                        "text": "[Imagen procesada anteriormente]"
+                    })
+                msg['content'] = text_only_content[0]['text'] if len(text_only_content) == 1 else text_only_content
+            elif isinstance(msg.get('content'), str):
+                # Truncar mensajes muy largos (posiblemente base64)
+                content = msg['content']
+                if len(content) > 1000:
+                    msg['content'] = content[:500] + "... [mensaje truncado]"
+        
+        logger.info(f"Historial final después de limpieza agresiva: {len(cleaned_history)} mensajes")
         
         # Prepare messages for OpenAI - SOLO el prompt del sistema y el historial limpio
         messages = [
@@ -466,13 +489,63 @@ async def whatsapp_endpoint(
                     
         logger.info("About to send to OpenAI - all URLs should be cleaned")
         
-        # SIEMPRE usar gpt-4.1-mini con web search para TODO (texto, imágenes, audio)
-        logger.info("Using gpt-4.1-mini with web search for all content types")
-        openai_response = gpt_with_web_search(
-            messages=messages,
-            user_location={"country": "CO", "city": "Bogotá"},
-            context_size="medium"
-        )
+        # SIEMPRE usar gpt-4.1-mini para TODO (texto, imágenes, audio)
+        logger.info("Using gpt-4.1-mini for all content types")
+        
+        # Log token estimation before sending
+        total_chars = sum(len(str(msg.get('content', ''))) for msg in messages)
+        estimated_tokens = total_chars // 4  # Rough estimation: 4 chars per token
+        logger.info(f"Estimated tokens before sending to OpenAI: {estimated_tokens}")
+        
+        try:
+            openai_response = gpt_with_web_search(
+                messages=messages
+            )
+        except Exception as e:
+            error_str = str(e).lower()
+            if 'context' in error_str and ('limit' in error_str or 'window' in error_str or 'token' in error_str):
+                logger.error(f"Context window exceeded even after aggressive cleaning: {e}")
+                # Further reduce history if context window is still exceeded
+                if len(cleaned_history) > 5:
+                    cleaned_history = cleaned_history[-5:]
+                    messages = [
+                        {'role': 'system', 'content': system_prompt}
+                    ] + cleaned_history
+                    
+                    # Re-add image to last user message if exists
+                    if image_url:
+                        for i in range(len(messages) - 1, -1, -1):
+                            if messages[i]['role'] == 'user':
+                                final_clean_query = clean_twilio_urls(query)
+                                messages[i]['content'] = [
+                                    {
+                                        "type": "text",
+                                        "text": final_clean_query
+                                    },
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": image_url,
+                                            "detail": "low"  # Use low detail to reduce tokens
+                                        }
+                                    }
+                                ]
+                                break
+                    
+                    logger.info(f"Retry with only {len(cleaned_history)} messages and low detail image")
+                    try:
+                        openai_response = gpt_with_web_search(
+                            messages=messages
+                        )
+                    except Exception as e2:
+                        logger.error(f"Still failing after aggressive reduction: {e2}")
+                        openai_response = None
+                else:
+                    logger.error("History already minimal, cannot reduce further")
+                    openai_response = None
+            else:
+                logger.error(f"OpenAI error (not context window): {e}")
+                openai_response = None
             
         logger.info(f"Respuesta OpenAI: {openai_response}")
         if not openai_response or not hasattr(openai_response, 'choices') or not openai_response.choices:

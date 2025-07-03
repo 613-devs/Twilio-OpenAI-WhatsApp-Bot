@@ -157,8 +157,10 @@ def gpt_with_web_search(messages, stream=False):
     model = "gpt-4.1-mini"  # Specify the model you want to use
     if model not in SUPPORTED_MODELS:
         logging.error(f"Model {model} not supported.")
-        return "[Error: Modelo no soportado]"
+        return None
     try:
+        # gpt-4.1-mini does not support web search, so use standard completion
+        # Remove any web search specific parameters
         response = completion(
             model=model, 
             messages=messages,
@@ -168,21 +170,14 @@ def gpt_with_web_search(messages, stream=False):
             frequency_penalty=FREQUENCY_PENALTY,
             presence_penalty=PRESENCE_PENALTY,
             stream=stream
+            # Note: No web search parameters for gpt-4.1-mini
         )
-        # Manejo robusto de la respuesta
-        if hasattr(response, 'choices') and response.choices:
-            content = getattr(response.choices[0].message, 'content', None)
-            if content:
-                return content.strip()
-            else:
-                logging.error("La respuesta de OpenAI no contiene contenido.")
-                return "[Error: No se recibió contenido de la IA]"
-        else:
-            logging.error(f"Respuesta inesperada de OpenAI: {response}")
-            return "[Error: Respuesta inesperada de la IA]"
+        # Return the full response object so main.py can access .choices
+        return response
     except Exception as e:
         logging.exception(f"Error al llamar a OpenAI: {e}")
-        return "[Error: No se pudo obtener respuesta de la IA]"
+        # Re-raise the exception so main.py can handle context window errors specifically
+        raise
 
 
 def handle_conversation_with_search(history, system_prompt):
