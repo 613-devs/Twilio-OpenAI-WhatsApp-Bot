@@ -72,13 +72,49 @@ def gpt_without_functions(model, stream=False, messages=[]):
 
 def summarise_conversation(history):
     """Summarise conversation history in one sentence"""
+    import re
+
+    def clean_twilio_urls(text):
+        """Limpia URLs de Twilio del texto"""
+        if not text:
+            return text
+        
+        text = str(text)
+        patterns = [
+            r'https://api\.twilio\.com/[^\s\'"]*',
+            r'https://[^\s]*\.twilio\.com/[^\s\'"]*',
+            r'https://[^\s]*\.twiliocdn\.com/[^\s\'"]*',
+            r'/2010-04-01/Accounts/[A-Z0-9]+/Messages/[A-Z0-9]+/Media/[A-Z0-9]+[^\s\'"]*',
+            r'MM[A-Za-z0-9]{32}',
+            r'ME[A-Za-z0-9]{32}',
+        ]
+        
+        for pattern in patterns:
+            text = re.sub(pattern, '[MEDIA_CONTENT]', text, flags=re.IGNORECASE)
+        
+        return text
 
     conversation = ""
     for item in history[-70:]:
+        # Usar el formato correcto de role/content
+        if item.get('role') == 'user':
+            content = clean_twilio_urls(item.get('content', ''))
+            conversation += f"User: {content}\n"
+        elif item.get('role') == 'assistant':
+            content = clean_twilio_urls(item.get('content', ''))
+            conversation += f"Bot: {content}\n"
+        
+        # Mantener compatibilidad con formato antiguo si existe
         if 'user_input' in item:
-            conversation += f"User: {item['user_input']}"
+            content = clean_twilio_urls(item['user_input'])
+            conversation += f"User: {content}\n"
         if 'bot_response' in item:
-            conversation += f"Bot: {item['bot_response']}"
+            content = clean_twilio_urls(item['bot_response'])
+            conversation += f"Bot: {content}\n"
+
+    # Si no hay conversación, retornar un summary genérico
+    if not conversation.strip():
+        return "Nueva conversación iniciada"
 
     openai_response = gpt_without_functions(
                         model="gpt-4.1-mini",

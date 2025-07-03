@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import re
 from datetime import datetime
 from dotenv import load_dotenv
 import warnings
@@ -59,6 +60,32 @@ app.add_middleware(
     allow_methods=["*"], 
     allow_headers=["*"]
 )
+
+def clean_twilio_urls(text):
+    """
+    Limpia URLs de Twilio del texto para evitar que OpenAI intente descargarlas
+    """
+    if not text:
+        return text
+    
+    # Convertir a string si no lo es
+    text = str(text)
+    
+    # Patrones más agresivos para URLs de Twilio
+    patterns = [
+        r'https://api\.twilio\.com/[^\s\'"]*',  # URLs completas de API de Twilio
+        r'https://[^\s]*\.twilio\.com/[^\s\'"]*',  # Cualquier subdominio de Twilio
+        r'https://[^\s]*\.twiliocdn\.com/[^\s\'"]*',  # URLs de media de Twilio CDN
+        r'/2010-04-01/Accounts/[A-Z0-9]+/Messages/[A-Z0-9]+/Media/[A-Z0-9]+[^\s\'"]*',  # Rutas de media
+        r'MM[A-Za-z0-9]{32}',  # Message SIDs que empiezan con MM
+        r'ME[A-Za-z0-9]{32}',  # Media SIDs que empiezan con ME
+    ]
+    
+    # Aplicar cada patrón
+    for pattern in patterns:
+        text = re.sub(pattern, '[MEDIA_CONTENT]', text, flags=re.IGNORECASE)
+    
+    return text
 
 def download_twilio_media(media_url):
     """
@@ -216,7 +243,10 @@ async def whatsapp_endpoint(
     logger.info(f'Request: {request}')
     logger.info(f'Body: {Body}')
     logger.info(f'From: {From}')
-    logger.info(f'NumMedia: {NumMedia}, MediaUrl0: {MediaUrl0}, MediaContentType0: {MediaContentType0}')
+    logger.info(f'NumMedia: {NumMedia}, MediaContentType0: {MediaContentType0}')
+    # No loggear MediaUrl0 para evitar que URLs sensibles aparezcan en logs que podrían ir a OpenAI
+    if MediaUrl0:
+        logger.info(f'MediaUrl0 received: [URL_REDACTED_FOR_SECURITY]')
 
     query = Body
     image_url = None
@@ -278,6 +308,9 @@ async def whatsapp_endpoint(
                     
                 if not query or query.strip() == "":
                     query = "Please analyze this product image using NOURA evidence-based wellbeing analysis."
+                else:
+                    # Limpiar cualquier URL de Twilio del query para evitar que OpenAI intente descargarlas
+                    query = clean_twilio_urls(query)
                     
             except Exception as e:
                 logger.error(f"Error processing image: {e}")
@@ -295,12 +328,32 @@ async def whatsapp_endpoint(
     history = get_cookies(redis_conn, f'whatsapp_twilio_demo_{chat_session_id}_history') or []
     if history:
         history = json.loads(history)
+        # Limpiar URLs de Twilio del historial recuperado
+        cleaned_retrieved_history = []
+        for msg in history:
+            cleaned_msg = msg.copy()
+            if 'content' in cleaned_msg:
+                cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
+            cleaned_retrieved_history.append(cleaned_msg)
+        history = cleaned_retrieved_history
+        logger.info(f"Retrieved and cleaned history with {len(history)} messages")
+    
+    # Limpiar URLs de Twilio del query antes de agregarlo al historial
+    clean_query = clean_twilio_urls(query)
     
     # Append the user's query to the chat history
-    history.append({"role": 'user', "content": query})
+    history.append({"role": 'user', "content": clean_query})
 
-    # Summarize the conversation history
-    history_summary = summarise_conversation(history)
+    # Limpiar todo el historial antes de crear el summary
+    fully_cleaned_history = []
+    for msg in history:
+        cleaned_msg = msg.copy()
+        if 'content' in cleaned_msg:
+            cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
+        fully_cleaned_history.append(cleaned_msg)
+    
+    # Summarize the conversation history usando el historial limpio
+    history_summary = summarise_conversation(fully_cleaned_history)
 
     # Obtener el prompt dinámico desde Google Docs
     try:
@@ -309,10 +362,12 @@ async def whatsapp_endpoint(
         logger.error(f"Failed to fetch system prompt from Google Docs: {e}")
         raw_prompt = "You are a helpful assistant. (Default prompt used due to error.)"
 
-    # Formatear el prompt con los datos necesarios
+    # Formatear el prompt con los datos necesarios - limpiar URLs de Twilio del history_summary
+    cleaned_history_summary = clean_twilio_urls(history_summary)
+    
     system_prompt = raw_prompt.format(
         ProductName="WhatsApp Assistant",
-        history_summary=history_summary,
+        history_summary=cleaned_history_summary,
         today=datetime.now().date(),
         OverallIndicator="helpful and friendly",
         score="85",
@@ -328,15 +383,33 @@ async def whatsapp_endpoint(
             "assessment": "Excellent"
         }
     )
+    
+    # Limpiar URLs de Twilio del prompt del sistema también
+    system_prompt = clean_twilio_urls(system_prompt)
 
     # Get a response from OpenAI's GPT model
     try:
         logger.info(f"Enviando a OpenAI: {system_prompt[:100]}... + history ({len(history)})")
         
-        # Prepare messages for OpenAI - SOLO el prompt del sistema y el historial
+        # Limpiar el historial de URLs de Twilio antes de enviarlo a OpenAI
+        cleaned_history = []
+        for msg in history:
+            cleaned_msg = msg.copy()
+            if 'content' in cleaned_msg:
+                cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
+            cleaned_history.append(cleaned_msg)
+        
+        # Prepare messages for OpenAI - SOLO el prompt del sistema y el historial limpio
         messages = [
             {'role': 'system', 'content': system_prompt}
-        ] + history
+        ] + cleaned_history
+        
+        # Log para debugging - verificar que no hay URLs de Twilio
+        logger.info("Checking messages for Twilio URLs before sending to OpenAI...")
+        for i, msg in enumerate(messages):
+            content = str(msg.get('content', ''))
+            if 'twilio.com' in content.lower() or 'MM' in content or 'ME' in content:
+                logger.warning(f"Message {i} may contain Twilio content: {content[:100]}...")
         
         # If there's an image, modify the last user message to include image content
         if image_url:
@@ -344,10 +417,12 @@ async def whatsapp_endpoint(
             # Find the last user message in the history and update it with image content
             for i in range(len(messages) - 1, -1, -1):
                 if messages[i]['role'] == 'user':
+                    # Usar el query ya limpio de URLs de Twilio
+                    final_clean_query = clean_twilio_urls(query)
                     messages[i]['content'] = [
                         {
                             "type": "text",
-                            "text": query
+                            "text": final_clean_query
                         },
                         {
                             "type": "image_url",
@@ -357,10 +432,27 @@ async def whatsapp_endpoint(
                             }
                         }
                     ]
-                    logger.info("Image content added to message successfully")
+                    logger.info(f"Image content added to message successfully. Text: {final_clean_query[:50]}...")
                     break
         else:
             logger.info("No image to process, using text only")
+            
+        # Log final para verificar el contenido que se envía a OpenAI
+        logger.info("Final message check before sending to OpenAI:")
+        for i, msg in enumerate(messages):
+            content = msg.get('content', '')
+            if isinstance(content, list):
+                # Si es una lista (imagen + texto), verificar solo el texto
+                for item in content:
+                    if item.get('type') == 'text':
+                        text_content = item.get('text', '')
+                        if 'twilio.com' in text_content.lower():
+                            logger.error(f"STILL CONTAINS TWILIO URL in message {i}: {text_content}")
+            elif isinstance(content, str):
+                if 'twilio.com' in content.lower():
+                    logger.error(f"STILL CONTAINS TWILIO URL in message {i}: {content[:100]}")
+                    
+        logger.info("About to send to OpenAI - all URLs should be cleaned")
         
         # SIEMPRE usar gpt-4.1-mini con web search para TODO (texto, imágenes, audio)
         logger.info("Using gpt-4.1-mini with web search for all content types")
@@ -381,9 +473,19 @@ async def whatsapp_endpoint(
         logger.exception(f"Error al llamar a OpenAI: {e}")
         chatbot_response = f"[Error: Excepción en la IA: {e} - Marca oculta: 9e1b2]"
 
-    # Append the assistant's response to the chat history on Redis
-    history.append({'role': 'assistant', 'content': chatbot_response},)
-    set_cookies(redis_conn, name=f'whatsapp_twilio_demo_{chat_session_id}_history', value=json.dumps(history))
+    # Append the assistant's response to the chat history on Redis - limpiar antes de guardar
+    clean_chatbot_response = clean_twilio_urls(chatbot_response)
+    history.append({'role': 'assistant', 'content': clean_chatbot_response})
+    
+    # Limpiar todo el historial antes de guardarlo
+    cleaned_history_for_storage = []
+    for msg in history:
+        cleaned_msg = msg.copy()
+        if 'content' in cleaned_msg:
+            cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
+        cleaned_history_for_storage.append(cleaned_msg)
+    
+    set_cookies(redis_conn, name=f'whatsapp_twilio_demo_{chat_session_id}_history', value=json.dumps(cleaned_history_for_storage))
 
     # Send the assistant's response back to the user via WhatsApp
     respond(From, chatbot_response)
