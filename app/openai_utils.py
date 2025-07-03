@@ -95,37 +95,61 @@ def summarise_conversation(history):
         return text
 
     conversation = ""
-    for item in history[-70:]:
+    # Use only the last 5 messages to avoid context window issues
+    # This is especially important when messages contain images (base64 encoded)
+    for item in history[-5:]:
         # Usar el formato correcto de role/content
         if item.get('role') == 'user':
             content = clean_twilio_urls(item.get('content', ''))
+            # Truncate very long content to avoid context issues
+            if len(content) > 1000:
+                content = content[:1000] + "... [truncated]"
             conversation += f"User: {content}\n"
         elif item.get('role') == 'assistant':
             content = clean_twilio_urls(item.get('content', ''))
+            # Truncate very long content to avoid context issues
+            if len(content) > 1000:
+                content = content[:1000] + "... [truncated]"
             conversation += f"Bot: {content}\n"
         
         # Mantener compatibilidad con formato antiguo si existe
         if 'user_input' in item:
             content = clean_twilio_urls(item['user_input'])
+            if len(content) > 1000:
+                content = content[:1000] + "... [truncated]"
             conversation += f"User: {content}\n"
         if 'bot_response' in item:
             content = clean_twilio_urls(item['bot_response'])
+            if len(content) > 1000:
+                content = content[:1000] + "... [truncated]"
             conversation += f"Bot: {content}\n"
 
     # Si no hay conversación, retornar un summary genérico
     if not conversation.strip():
         return "Nueva conversación iniciada"
 
-    openai_response = gpt_without_functions(
-                        model="gpt-4.1-mini",
-                        stream=False,
-                        messages=[
-                            {'role': 'system', 'content': SUMMARY_PROMPT}, 
-                            {'role': 'user', 'content': conversation}
-                    ])
-    chatbot_response = openai_response.choices[0].message.content.strip()
+    # Log the conversation length to monitor token usage
+    logging.info(f"Summary - Conversation length: {len(conversation)} characters")
+    
+    # Ensure conversation is not too long (additional safety check)
+    if len(conversation) > 5000:  # Rough character limit
+        conversation = conversation[-5000:]  # Keep only the last 5000 characters
+        logging.warning("Summary - Conversation truncated to avoid context window issues")
 
-    return chatbot_response
+    try:
+        openai_response = gpt_without_functions(
+                            model="gpt-4.1-mini",
+                            stream=False,
+                            messages=[
+                                {'role': 'system', 'content': SUMMARY_PROMPT}, 
+                                {'role': 'user', 'content': conversation}
+                        ])
+        chatbot_response = openai_response.choices[0].message.content.strip()
+        return chatbot_response
+    except Exception as e:
+        logging.error(f"Error in summarise_conversation: {e}")
+        # Return a generic summary if the AI summary fails
+        return "Conversación sobre diversos temas"
 
 
 def gpt_with_web_search(messages, stream=False):
