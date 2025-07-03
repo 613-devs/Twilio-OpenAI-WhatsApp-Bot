@@ -96,16 +96,49 @@ async def whatsapp_endpoint(
     logger.info(f'NumMedia: {NumMedia}, MediaUrl0: {MediaUrl0}, MediaContentType0: {MediaContentType0}')
 
     query = Body
+    image_url = None
+    
     # Procesar media si existe
     if NumMedia and int(NumMedia) > 0 and MediaUrl0:
         if MediaContentType0 and MediaContentType0.startswith("audio"):
-            audio_response = requests.get(MediaUrl0)
-            with open("audio.ogg", "wb") as f:
-                f.write(audio_response.content)
-            # Aquí deberías llamar a tu función de transcripción real
-            query = "[AUDIO RECIBIDO: aquí iría la transcripción]"
+            try:
+                logger.info(f"Processing audio from: {MediaUrl0}")
+                # Descargar el archivo de audio
+                audio_response = requests.get(MediaUrl0)
+                audio_response.raise_for_status()
+                
+                # Guardar temporalmente el archivo
+                audio_filename = "temp_audio.ogg"
+                with open(audio_filename, "wb") as f:
+                    f.write(audio_response.content)
+                
+                # Transcribir usando OpenAI Whisper
+                client = openai.OpenAI()
+                with open(audio_filename, "rb") as audio_file:
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="es"  # Español como idioma principal
+                    )
+                
+                # Usar la transcripción como query
+                query = transcript.text
+                logger.info(f"Audio transcribed: {query}")
+                
+                # Limpiar archivo temporal
+                try:
+                    os.remove(audio_filename)
+                except:
+                    pass
+                    
+            except Exception as e:
+                logger.error(f"Error processing audio: {e}")
+                query = "Lo siento, no pude procesar tu mensaje de audio. Por favor, envía un mensaje de texto."
+                
         elif MediaContentType0 and MediaContentType0.startswith("image"):
-            query = f"[IMAGEN RECIBIDA: {MediaUrl0}]"
+            image_url = MediaUrl0
+            if not query or query.strip() == "":
+                query = "Please analyze this product image using NOURA evidence-based wellbeing analysis."
     # Si no hay texto ni media, responde con un mensaje amigable
     if not query or query.strip() == "":
         query = "Recibí tu mensaje, pero no pude procesar el contenido. Por favor envía texto, una imagen o un audio."
@@ -154,13 +187,40 @@ async def whatsapp_endpoint(
     # Get a response from OpenAI's GPT model
     try:
         logger.info(f"Enviando a OpenAI: {system_prompt[:100]}... + history ({len(history)})")
-        openai_response = gpt_without_functions(
-            model="gpt-4.1-mini",
-            stream=False,
-            messages=[
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'assistant', 'content': "Hi there, how can I help you?"}
-            ] + history)
+        
+        # Prepare messages for OpenAI - SOLO el prompt del sistema y el historial
+        messages = [
+            {'role': 'system', 'content': system_prompt}
+        ] + history
+        
+        # If there's an image, modify the last user message to include image content
+        if image_url:
+            # Find the last user message in the history and update it with image content
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i]['role'] == 'user':
+                    messages[i]['content'] = [
+                        {
+                            "type": "text",
+                            "text": query
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url,
+                                "detail": "high"
+                            }
+                        }
+                    ]
+                    break
+        
+        # ALWAYS use web search for all queries to get current information and real links
+        logger.info("Using web search for current information and real purchase links")
+        openai_response = gpt_with_web_search(
+            messages=messages,
+            user_location={"country": "CO", "city": "Bogotá"},  # Colombia location
+            context_size="medium"
+        )
+            
         logger.info(f"Respuesta OpenAI: {openai_response}")
         if not openai_response or not hasattr(openai_response, 'choices') or not openai_response.choices:
             logger.error(f"OpenAI response is invalid: {openai_response}")
@@ -182,19 +242,58 @@ async def whatsapp_endpoint(
 
 
 def gpt_with_web_search(messages, user_location=None, context_size="medium"):
-    tools = [{
-        "type": "web_search_preview",
+    """
+    Función para realizar búsquedas web usando Chat Completions API
+    SIEMPRE usa web search para obtener información actualizada y links reales
+    """
+    client = openai.OpenAI()
+    
+    web_search_options = {
         "search_context_size": context_size,
-    }]
+    }
+    
     if user_location:
-        tools[0]["user_location"] = user_location
-
-    response = openai.responses.create(
-        model="gpt-4.1-mini",  # o el modelo que soporte web_search_preview
-        tools=tools,
-        input=messages,
-    )
-    return response.output_text
+        web_search_options["user_location"] = {
+            "type": "approximate",
+            "approximate": user_location
+        }
+    
+    try:
+        # gpt-4o-search-preview soporta tanto texto como imágenes CON web search
+        response = client.chat.completions.create(
+            model="gpt-4o-search-preview",  # Modelo con web search + vision
+            web_search_options=web_search_options,
+            messages=messages,
+        )
+        return response
+    except Exception as e:
+        logger.error(f"Error in web search: {e}")
+        # Fallback a gpt-4o sin web search pero con vision si hay imágenes
+        try:
+            # Check if there are images in messages
+            has_images = any(
+                isinstance(msg.get('content'), list) and 
+                any(item.get('type') == 'image_url' for item in msg['content'] if isinstance(item, dict))
+                for msg in messages if isinstance(msg, dict)
+            )
+            
+            fallback_model = "gpt-4o" if has_images else "gpt-4.1-mini"
+            logger.info(f"Using fallback model: {fallback_model}")
+            
+            return client.chat.completions.create(
+                model=fallback_model,
+                messages=messages,
+            )
+        except Exception as fallback_error:
+            logger.error(f"Fallback also failed: {fallback_error}")
+            # Last resort: simple text model
+            return client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[
+                    msg for msg in messages 
+                    if not (isinstance(msg.get('content'), list))
+                ],
+            )
 
 
 if __name__ == '__main__':
