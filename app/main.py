@@ -73,17 +73,22 @@ def gpt_with_web_search(messages, user_location=None, context_size="medium"):
     """
     client = openai.OpenAI()
     
+    # Configurar opciones de web search
+    web_search_options = {
+        "search_context_size": context_size,
+    }
+    
+    if user_location:
+        web_search_options["user_location"] = {
+            "type": "approximate",
+            "approximate": user_location
+        }
+    
     try:
         # gpt-4.1-mini puede hacer web search según la documentación
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
-            web_search_options={
-                "search_context_size": context_size,
-                "user_location": {
-                    "type": "approximate",
-                    "approximate": user_location
-                } if user_location else None
-            },
+            web_search_options=web_search_options,
             messages=messages,
         )
         return response
@@ -151,33 +156,36 @@ async def whatsapp_endpoint(
         if MediaContentType0 and MediaContentType0.startswith("audio"):
             try:
                 logger.info(f"Processing audio from: {MediaUrl0}")
-                # Descargar el archivo de audio
-                audio_response = requests.get(MediaUrl0)
-                audio_response.raise_for_status()
+                # Descargar el archivo de audio usando autenticación de Twilio
+                audio_data = download_twilio_media(MediaUrl0)
                 
-                # Guardar temporalmente el archivo
-                audio_filename = "temp_audio.ogg"
-                with open(audio_filename, "wb") as f:
-                    f.write(audio_response.content)
-                
-                # Transcribir usando OpenAI Whisper
-                client = openai.OpenAI()
-                with open(audio_filename, "rb") as audio_file:
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        language="es"  # Español como idioma principal
-                    )
-                
-                # Usar la transcripción como query
-                query = transcript.text
-                logger.info(f"Audio transcribed: {query}")
-                
-                # Limpiar archivo temporal
-                try:
-                    os.remove(audio_filename)
-                except:
-                    pass
+                if audio_data:
+                    # Guardar temporalmente el archivo
+                    audio_filename = "temp_audio.ogg"
+                    with open(audio_filename, "wb") as f:
+                        f.write(audio_data)
+                    
+                    # Transcribir usando OpenAI Whisper
+                    client = openai.OpenAI()
+                    with open(audio_filename, "rb") as audio_file:
+                        transcript = client.audio.transcriptions.create(
+                            model="whisper-1",
+                            file=audio_file,
+                            language="es"  # Español como idioma principal
+                        )
+                    
+                    # Usar la transcripción como query
+                    query = transcript.text
+                    logger.info(f"Audio transcribed: {query}")
+                    
+                    # Limpiar archivo temporal
+                    try:
+                        os.remove(audio_filename)
+                    except:
+                        pass
+                else:
+                    logger.error("Failed to download audio from Twilio")
+                    query = "Lo siento, no pude descargar tu mensaje de audio."
                     
             except Exception as e:
                 logger.error(f"Error processing audio: {e}")
@@ -262,6 +270,7 @@ async def whatsapp_endpoint(
         
         # If there's an image, modify the last user message to include image content
         if image_url:
+            logger.info(f"Image URL ready for processing: {image_url[:50]}...")
             # Find the last user message in the history and update it with image content
             for i in range(len(messages) - 1, -1, -1):
                 if messages[i]['role'] == 'user':
@@ -278,7 +287,10 @@ async def whatsapp_endpoint(
                             }
                         }
                     ]
+                    logger.info("Image content added to message successfully")
                     break
+        else:
+            logger.info("No image to process, using text only")
         
         # SIEMPRE usar gpt-4.1-mini con web search para TODO (texto, imágenes, audio)
         logger.info("Using gpt-4.1-mini with web search for all content types")
