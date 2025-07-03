@@ -63,3 +63,48 @@ To get started, follow these steps:
    ```bash
    docker-compose up --build -d
    ```
+
+## Troubleshooting
+
+### Error 401 al descargar media de Twilio
+
+Si ves errores 401 cuando el bot intenta descargar imágenes o audio de WhatsApp, sigue estos pasos:
+
+1. **Verifica tus credenciales de Twilio**:
+   Ejecuta el script de diagnóstico para verificar tu configuración:
+   ```bash
+   python test_credentials.py
+   ```
+
+2. **Revisa tu archivo .env**:
+   Asegúrate de que tienes todas las variables requeridas:
+   ```plaintext
+   TWILIO_ACCOUNT_SID=<tu Account SID de Twilio>
+   TWILIO_AUTH_TOKEN=<tu Auth Token de Twilio>
+   OPENAI_API_KEY=<tu API key de OpenAI>
+   TWILIO_WHATSAPP_NUMBER=<tu número de WhatsApp de Twilio>
+   ```
+
+3. **Obtén las credenciales correctas de Twilio**:
+   - Ve a tu [Twilio Console](https://console.twilio.com/)
+   - En el dashboard principal, encontrarás:
+     - **Account SID**: Empieza con "AC..."
+     - **Auth Token**: Haz clic en "Show" para revelarlo
+   - Copia estos valores exactamente como aparecen
+
+4. **Problema común**: URLs de media caducadas
+   - Los URLs de media de Twilio expiran después de un tiempo
+   - Si continúas viendo errores 401, el problema puede ser que la URL haya caducado
+   - El bot intentará múltiples métodos de descarga automáticamente
+
+5. **Logs de diagnóstico**:
+   Revisa los logs del contenedor para más detalles:
+   ```bash
+   docker-compose logs -f app
+   ```
+
+### Otros problemas comunes
+
+- **OpenAI API errors**: Verifica que tu API key sea válida y tenga créditos
+- **Redis connection**: Asegúrate de que Redis esté ejecutándose
+- **Twilio webhook**: Verifica que la URL del webhook esté configurada correctamente en Twilio

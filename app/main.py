@@ -30,6 +30,17 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 
+# Validar que las variables de entorno críticas estén configuradas
+if not TWILIO_ACCOUNT_SID:
+    raise ValueError("TWILIO_ACCOUNT_SID environment variable is required")
+if not TWILIO_AUTH_TOKEN:
+    raise ValueError("TWILIO_AUTH_TOKEN environment variable is required")
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable is required")
+
+logger.info(f"Twilio Account SID configured: {TWILIO_ACCOUNT_SID[:10]}...")
+logger.info(f"OpenAI API Key configured: {OPENAI_API_KEY[:10]}...")
+
 app = FastAPI(
     title="Twilio-OpenAI-WhatsApp-Bot",
     description="Twilio OpenAI WhatsApp Bot",
@@ -54,13 +65,72 @@ def download_twilio_media(media_url):
     Descarga media desde Twilio usando autenticación
     """
     try:
-        # Usar las credenciales de Twilio para descargar el media
+        # Validar que tenemos las credenciales
+        if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+            logger.error("Missing Twilio credentials: TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN")
+            return None
+            
+        logger.info(f"Attempting to download media from: {media_url}")
+        logger.info(f"Using Twilio Account SID: {TWILIO_ACCOUNT_SID[:10]}...")
+        logger.info(f"Auth token length: {len(TWILIO_AUTH_TOKEN) if TWILIO_AUTH_TOKEN else 'None'}")
+        
+        # Método 1: Usar requests con autenticación HTTP básica
         response = requests.get(
             media_url,
-            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            timeout=30
         )
+        
+        logger.info(f"Response status: {response.status_code}")
+        logger.info(f"Response headers: {dict(response.headers)}")
+        
+        if response.status_code == 401:
+            logger.error("Authentication failed - check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN")
+            logger.error(f"Used credentials - SID: {TWILIO_ACCOUNT_SID}, Token: {TWILIO_AUTH_TOKEN[:10] if TWILIO_AUTH_TOKEN else 'None'}...")
+            return None
+        elif response.status_code == 404:
+            logger.error("Media not found - the URL may have expired")
+            return None
+        elif response.status_code == 403:
+            logger.error("Access forbidden - check permissions")
+            return None
+            
         response.raise_for_status()
+        logger.info(f"Successfully downloaded {len(response.content)} bytes")
         return response.content
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error downloading Twilio media: {e}")
+        
+        # Método 2: Intentar usando el cliente de Twilio directamente
+        try:
+            logger.info("Trying alternative method with Twilio client...")
+            twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            
+            # Extraer el MediaSid de la URL
+            # URL formato: https://api.twilio.com/.../Messages/{MessageSid}/Media/{MediaSid}
+            url_parts = media_url.split('/')
+            media_sid = url_parts[-1]
+            message_sid = url_parts[-3]
+            
+            # Usar el cliente de Twilio para obtener la URL del media
+            media = twilio_client.messages(message_sid).media(media_sid).fetch()
+            media_uri = f"https://api.twilio.com{media.uri}"
+            
+            # Descargar usando la URI oficial
+            response = requests.get(
+                media_uri,
+                auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+                timeout=30
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully downloaded via Twilio client: {len(response.content)} bytes")
+            return response.content
+            
+        except Exception as twilio_error:
+            logger.error(f"Twilio client method also failed: {twilio_error}")
+            return None
+            
     except Exception as e:
         logger.error(f"Error downloading Twilio media: {e}")
         return None
@@ -320,6 +390,26 @@ async def whatsapp_endpoint(
     return PlainTextResponse("OK", status_code=200)
 
 
+def validate_twilio_credentials():
+    """
+    Valida las credenciales de Twilio intentando crear un cliente
+    """
+    try:
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        # Intentar obtener información de la cuenta para validar las credenciales
+        account = client.api.accounts(TWILIO_ACCOUNT_SID).fetch()
+        logger.info(f"Twilio credentials validated successfully. Account: {account.friendly_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Twilio credentials validation failed: {e}")
+        return False
+
+
 if __name__ == '__main__':
+    # Validar credenciales al inicio
+    if not validate_twilio_credentials():
+        logger.error("Invalid Twilio credentials. Please check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN")
+        exit(1)
+    
     import uvicorn
     uvicorn.run("app.main:app", host='0.0.0.0', port=3002, reload=True)
