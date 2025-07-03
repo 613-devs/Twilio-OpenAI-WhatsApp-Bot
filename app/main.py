@@ -337,6 +337,12 @@ async def whatsapp_endpoint(
             cleaned_retrieved_history.append(cleaned_msg)
         history = cleaned_retrieved_history
         logger.info(f"Retrieved and cleaned history with {len(history)} messages")
+        
+        # Limitar historial para evitar exceder el límite de tokens
+        # Mantener solo los últimos 50 mensajes para evitar problemas de contexto
+        if len(history) > 50:
+            history = history[-50:]
+            logger.info(f"Historial limitado a los últimos {len(history)} mensajes")
     
     # Limpiar URLs de Twilio del query antes de agregarlo al historial
     clean_query = clean_twilio_urls(query)
@@ -398,6 +404,12 @@ async def whatsapp_endpoint(
             if 'content' in cleaned_msg:
                 cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
             cleaned_history.append(cleaned_msg)
+        
+        # Limitar historial para OpenAI - mantener solo los últimos 20 mensajes
+        # para evitar exceder el límite de tokens con imágenes
+        if len(cleaned_history) > 20:
+            cleaned_history = cleaned_history[-20:]
+            logger.info(f"Historial limitado para OpenAI a {len(cleaned_history)} mensajes")
         
         # Prepare messages for OpenAI - SOLO el prompt del sistema y el historial limpio
         messages = [
