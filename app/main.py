@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 from datetime import datetime
 from dotenv import load_dotenv
 import warnings
@@ -47,6 +48,53 @@ app.add_middleware(
     allow_methods=["*"], 
     allow_headers=["*"]
 )
+
+def download_twilio_media(media_url):
+    """
+    Descarga media desde Twilio usando autenticación
+    """
+    try:
+        # Usar las credenciales de Twilio para descargar el media
+        response = requests.get(
+            media_url,
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        logger.error(f"Error downloading Twilio media: {e}")
+        return None
+
+
+def gpt_with_web_search(messages, user_location=None, context_size="medium"):
+    """
+    Función simplificada que usa gpt-4.1-mini con web search para TODO
+    (texto, imágenes, audio transcrito)
+    """
+    client = openai.OpenAI()
+    
+    try:
+        # gpt-4.1-mini puede hacer web search según la documentación
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            web_search_options={
+                "search_context_size": context_size,
+                "user_location": {
+                    "type": "approximate",
+                    "approximate": user_location
+                } if user_location else None
+            },
+            messages=messages,
+        )
+        return response
+    except Exception as e:
+        logger.error(f"Error with gpt-4.1-mini web search: {e}")
+        # Fallback sin web search
+        return client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=messages,
+        )
+
 
 def respond(to_number, message) -> None:
     """ Send a message via Twilio WhatsApp """
@@ -136,9 +184,28 @@ async def whatsapp_endpoint(
                 query = "Lo siento, no pude procesar tu mensaje de audio. Por favor, envía un mensaje de texto."
                 
         elif MediaContentType0 and MediaContentType0.startswith("image"):
-            image_url = MediaUrl0
-            if not query or query.strip() == "":
-                query = "Please analyze this product image using NOURA evidence-based wellbeing analysis."
+            try:
+                logger.info(f"Processing image from: {MediaUrl0}")
+                # Descargar imagen usando autenticación de Twilio
+                image_data = download_twilio_media(MediaUrl0)
+                
+                if image_data:
+                    # Convertir a base64 para uso con OpenAI
+                    image_base64 = base64.b64encode(image_data).decode('utf-8')
+                    image_url = f"data:{MediaContentType0};base64,{image_base64}"
+                    logger.info("Image converted to base64 successfully")
+                else:
+                    logger.error("Failed to download image from Twilio")
+                    image_url = None
+                    
+                if not query or query.strip() == "":
+                    query = "Please analyze this product image using NOURA evidence-based wellbeing analysis."
+                    
+            except Exception as e:
+                logger.error(f"Error processing image: {e}")
+                image_url = None
+                if not query or query.strip() == "":
+                    query = "Lo siento, no pude procesar la imagen. Por favor, describe el producto para analizarlo."
     # Si no hay texto ni media, responde con un mensaje amigable
     if not query or query.strip() == "":
         query = "Recibí tu mensaje, pero no pude procesar el contenido. Por favor envía texto, una imagen o un audio."
@@ -213,11 +280,11 @@ async def whatsapp_endpoint(
                     ]
                     break
         
-        # ALWAYS use web search for all queries to get current information and real links
-        logger.info("Using web search for current information and real purchase links")
+        # SIEMPRE usar gpt-4.1-mini con web search para TODO (texto, imágenes, audio)
+        logger.info("Using gpt-4.1-mini with web search for all content types")
         openai_response = gpt_with_web_search(
             messages=messages,
-            user_location={"country": "CO", "city": "Bogotá"},  # Colombia location
+            user_location={"country": "CO", "city": "Bogotá"},
             context_size="medium"
         )
             
@@ -239,61 +306,6 @@ async def whatsapp_endpoint(
     # Send the assistant's response back to the user via WhatsApp
     respond(From, chatbot_response)
     return PlainTextResponse("OK", status_code=200)
-
-
-def gpt_with_web_search(messages, user_location=None, context_size="medium"):
-    """
-    Función para realizar búsquedas web usando Chat Completions API
-    SIEMPRE usa web search para obtener información actualizada y links reales
-    """
-    client = openai.OpenAI()
-    
-    web_search_options = {
-        "search_context_size": context_size,
-    }
-    
-    if user_location:
-        web_search_options["user_location"] = {
-            "type": "approximate",
-            "approximate": user_location
-        }
-    
-    try:
-        # gpt-4o-search-preview soporta tanto texto como imágenes CON web search
-        response = client.chat.completions.create(
-            model="gpt-4o-search-preview",  # Modelo con web search + vision
-            web_search_options=web_search_options,
-            messages=messages,
-        )
-        return response
-    except Exception as e:
-        logger.error(f"Error in web search: {e}")
-        # Fallback a gpt-4o sin web search pero con vision si hay imágenes
-        try:
-            # Check if there are images in messages
-            has_images = any(
-                isinstance(msg.get('content'), list) and 
-                any(item.get('type') == 'image_url' for item in msg['content'] if isinstance(item, dict))
-                for msg in messages if isinstance(msg, dict)
-            )
-            
-            fallback_model = "gpt-4o" if has_images else "gpt-4.1-mini"
-            logger.info(f"Using fallback model: {fallback_model}")
-            
-            return client.chat.completions.create(
-                model=fallback_model,
-                messages=messages,
-            )
-        except Exception as fallback_error:
-            logger.error(f"Fallback also failed: {fallback_error}")
-            # Last resort: simple text model
-            return client.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=[
-                    msg for msg in messages 
-                    if not (isinstance(msg.get('content'), list))
-                ],
-            )
 
 
 if __name__ == '__main__':
