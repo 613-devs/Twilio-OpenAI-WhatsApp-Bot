@@ -45,6 +45,9 @@ SUPPORTED_MODELS = {
     "gpt-4-0125-preview",
     "gpt-4.1-mini",
     "gpt-4.1-nano",
+    # OpenAI models with web search
+    "gpt-4o-search-preview",
+    "gpt-4o-mini-search-preview",
     # Amazon Anthropic models
     "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
     "bedrock/anthropic.claude-3-opus-20240229-v1:0",
@@ -138,7 +141,7 @@ def summarise_conversation(history):
 
     try:
         openai_response = gpt_without_functions(
-                            model="gpt-4.1-mini",
+                            model="gpt-4o-mini",  # Usar gpt-4o-mini en lugar de gpt-4.1-mini
                             stream=False,
                             messages=[
                                 {'role': 'system', 'content': SUMMARY_PROMPT}, 
@@ -153,14 +156,13 @@ def summarise_conversation(history):
 
 
 def gpt_with_web_search(messages, stream=False):
-    """ GPT model with web search capability. """
-    model = "gpt-4.1-mini"  # Specify the model you want to use
+    """ GPT model with REAL web search capability using gpt-4o-mini-search-preview. """
+    model = "gpt-4o-mini-search-preview"  # Usar el modelo que SÍ soporta web search
     if model not in SUPPORTED_MODELS:
         logging.error(f"Model {model} not supported.")
         return None
     try:
-        # gpt-4.1-mini does not support web search, so use standard completion
-        # Remove any web search specific parameters
+        # gpt-4o-mini-search-preview SÍ soporta web search nativo
         response = completion(
             model=model, 
             messages=messages,
@@ -169,15 +171,31 @@ def gpt_with_web_search(messages, stream=False):
             top_p=TOP_P,
             frequency_penalty=FREQUENCY_PENALTY,
             presence_penalty=PRESENCE_PENALTY,
-            stream=stream
-            # Note: No web search parameters for gpt-4.1-mini
+            stream=stream,
+            web_search_options={}  # Habilitar búsqueda web
         )
         # Return the full response object so main.py can access .choices
         return response
     except Exception as e:
-        logging.exception(f"Error al llamar a OpenAI: {e}")
-        # Re-raise the exception so main.py can handle context window errors specifically
-        raise
+        logging.exception(f"Error al llamar a OpenAI con web search: {e}")
+        # Fallback a gpt-4o-mini sin web search
+        try:
+            logging.info("Fallback to gpt-4o-mini without web search")
+            response = completion(
+                model="gpt-4o-mini", 
+                messages=messages,
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+                top_p=TOP_P,
+                frequency_penalty=FREQUENCY_PENALTY,
+                presence_penalty=PRESENCE_PENALTY,
+                stream=stream
+            )
+            return response
+        except Exception as e2:
+            logging.error(f"Fallback también falló: {e2}")
+            # Re-raise the exception so main.py can handle context window errors specifically
+            raise
 
 
 def handle_conversation_with_search(history, system_prompt):
