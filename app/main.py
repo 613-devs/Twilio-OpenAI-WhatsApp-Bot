@@ -215,7 +215,7 @@ PROHIBIDO TERMINANTEMENTE:
         ] + user_messages
         # NO enviar temperature ni max_tokens a gpt-4-vision-preview
         response = client.chat.completions.create(
-            model="gpt-4-vision-preview",  # Modelo vision 4.1
+            model="gpt-4.1-mini",  # Modelo vision 4.1
             web_search_options=web_search_options,
             messages=enhanced_messages
         )
