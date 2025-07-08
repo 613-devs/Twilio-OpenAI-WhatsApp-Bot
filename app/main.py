@@ -450,262 +450,52 @@ async def whatsapp_endpoint(
     
     # Limpiar URLs de Twilio del prompt del sistema también
     system_prompt = clean_twilio_urls(system_prompt)
-
-    # Get a response from OpenAI's GPT model
+    # --- INTEGRACIÓN VISION AGENT DIOS ---
     try:
-        logger.info(f"Enviando a OpenAI: {system_prompt[:100]}... + history ({len(history)})")
-        
-        # Limpiar el historial de URLs de Twilio antes de enviarlo a OpenAI
-        cleaned_history = []
-        for msg in history:
-            cleaned_msg = msg.copy()
-            if 'content' in cleaned_msg:
-                cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
-            cleaned_history.append(cleaned_msg)
-        
-        # ULTRA AGGRESSIVE token reduction for context window management
-        logger.info(f"Starting aggressive token reduction. Initial history length: {len(cleaned_history)}")
-        
-        # 1. If there's an image in current query, limit to only 3 messages maximum
-        # (When processing images, we need to reserve most tokens for the image)
-        max_history = 3 if image_url else 5
-        if len(cleaned_history) > max_history:
-            cleaned_history = cleaned_history[-max_history:]
-            logger.info(f"History severely limited to {len(cleaned_history)} messages due to image/token constraints")
-        
-        # 2. Strip ALL image data from history and heavily truncate text
-        for i, msg in enumerate(cleaned_history):
-            if isinstance(msg.get('content'), list):
-                # Extract only text content, no images in history
-                text_parts = []
-                for item in msg['content']:
-                    if item.get('type') == 'text':
-                        text_parts.append(item.get('text', ''))
-                
-                # Combine text and heavily truncate
-                combined_text = ' '.join(text_parts)
-                if combined_text:
-                    # Super aggressive truncation for history
-                    if len(combined_text) > 200:
-                        combined_text = combined_text[:150] + "... [truncated]"
-                    msg['content'] = combined_text
-                else:
-                    msg['content'] = "[Previous message]"
-                    
-            elif isinstance(msg.get('content'), str):
-                content = msg['content']
-                # Heavy truncation of text messages too
-                if len(content) > 200:
-                    msg['content'] = content[:150] + "... [truncated]"
-        
-        # 3. Shorten the system prompt dramatically when processing images
         if image_url:
-            # Create a minimal system prompt for image processing
-            short_prompt = """You are a helpful WhatsApp assistant. 
-CRITICAL: Always search the web for current information. NEVER invent URLs or use example.com. 
-If you can't find real URLs, say "I couldn't find specific links" instead of making them up.
-Provide helpful, accurate responses with real web sources when available."""
-            system_prompt = short_prompt
-            logger.info("Using minimal system prompt due to image processing")
-        
-        logger.info(f"Final history after ultra-aggressive reduction: {len(cleaned_history)} messages")
-        
-        # Estimate tokens more accurately
-        def count_tokens_roughly(text):
-            """
-            More accurate token estimation function
-            """
-            if isinstance(text, list):
-                return sum(count_tokens_roughly(str(item)) for item in text)
-            
-            if isinstance(text, dict):
-                return count_tokens_roughly(str(text))
-            
-            text = str(text)
-            # More conservative estimation: 3 characters per token on average
-            # This is more accurate for OpenAI models than 4 chars per token
-            return len(text) // 3
-        
-        total_estimated_tokens = count_tokens_roughly(system_prompt)
-        for msg in cleaned_history:
-            total_estimated_tokens += count_tokens_roughly(msg.get('content', ''))
-        
-        # If image, add estimated image tokens (images can be 1000+ tokens each)
-        if image_url:
-            total_estimated_tokens += 1500  # Conservative estimate for high-detail image
-            
-        logger.info(f"Estimated total tokens after reduction: {total_estimated_tokens}")
-        
-        # If still too high, further reduce
-        if total_estimated_tokens > 25000:  # Very conservative limit
-            logger.warning(f"Token count still high ({total_estimated_tokens}), further reducing...")
-            
-            if image_url:
-                # For images, keep only the most recent user message
-                user_messages = [msg for msg in cleaned_history if msg.get('role') == 'user']
-                assistant_messages = [msg for msg in cleaned_history if msg.get('role') == 'assistant']
-                
-                # Keep only last user and assistant message
-                if user_messages and assistant_messages:
-                    cleaned_history = [user_messages[-1], assistant_messages[-1]]
-                elif user_messages:
-                    cleaned_history = [user_messages[-1]]
-                else:
-                    cleaned_history = []
-                    
-                logger.info(f"Emergency reduction for image: only {len(cleaned_history)} messages kept")
-            else:
-                # For text only, keep minimal history
-                cleaned_history = cleaned_history[-2:] if len(cleaned_history) > 2 else cleaned_history
-                logger.info(f"Emergency reduction for text: only {len(cleaned_history)} messages kept")
-        
-        # Prepare messages for OpenAI - SOLO el prompt del sistema y el historial limpio
-        messages = [
-            {'role': 'system', 'content': system_prompt}
-        ] + cleaned_history
-        
-        # Log para debugging - verificar que no hay URLs de Twilio
-        logger.info("Checking messages for Twilio URLs before sending to OpenAI...")
-        for i, msg in enumerate(messages):
-            content = str(msg.get('content', ''))
-            if 'twilio.com' in content.lower() or 'MM' in content or 'ME' in content:
-                logger.warning(f"Message {i} may contain Twilio content: {content[:100]}...")
-        
-        # If there's an image, modify the last user message to include image content
-        if image_url:
-            logger.info(f"Image URL ready for processing: {image_url[:50]}...")
-            # Find the last user message in the history and update it with image content
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i]['role'] == 'user':
-                    # Usar el query ya limpio de URLs de Twilio
-                    final_clean_query = clean_twilio_urls(query)
-                    messages[i]['content'] = [
-                        {
-                            "type": "text",
-                            "text": final_clean_query
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image_url,
-                                "detail": "high"
-                            }
-                        }
-                    ]
-                    logger.info(f"Image content added to message successfully. Text: {final_clean_query[:50]}...")
-                    break
-        else:
-            logger.info("No image to process, using text only")
-            
-        # Log final para verificar el contenido que se envía a OpenAI
-        logger.info("Final message check before sending to OpenAI:")
-        for i, msg in enumerate(messages):
-            content = msg.get('content', '')
-            if isinstance(content, list):
-                # Si es una lista (imagen + texto), verificar solo el texto
-                for item in content:
-                    if item.get('type') == 'text':
-                        text_content = item.get('text', '')
-                        if 'twilio.com' in text_content.lower():
-                            logger.error(f"STILL CONTAINS TWILIO URL in message {i}: {text_content}")
-            elif isinstance(content, str):
-                if 'twilio.com' in content.lower():
-                    logger.error(f"STILL CONTAINS TWILIO URL in message {i}: {content[:100]}")
-                    
-        logger.info("About to send to OpenAI - all URLs should be cleaned")
-        
-        # Usar gpt-4o-mini-search-preview CON búsqueda web controlada que respeta el prompt
-        logger.info("Using gpt-4o-search-preview with REAL web search (supports images + web)")
-        
-        # Log token estimation before sending
-        final_estimated_tokens = count_tokens_roughly(system_prompt)
-        for msg in messages:
-            final_estimated_tokens += count_tokens_roughly(msg.get('content', ''))
-        if image_url:
-            final_estimated_tokens += 1500  # Image tokens
-            
-        logger.info(f"Final estimated tokens before sending to OpenAI: {final_estimated_tokens}")
-        
-        # Emergency fallback: if still too high and there's an image, warn user and remove image
-        if final_estimated_tokens > 30000 and image_url:
-            logger.warning(f"Tokens still too high ({final_estimated_tokens}) even after reduction. Removing image to prevent context overflow.")
-            
-            # Remove image from the last user message and add a warning
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i]['role'] == 'user':
-                    final_clean_query = clean_twilio_urls(query)
-                    messages[i]['content'] = f"{final_clean_query}\n\n[Nota: Imagen removida automáticamente para evitar límites de contexto. Por favor, reenvía la imagen con una consulta más específica.]"
-                    break
-            
-            # Recalculate without image
-            final_estimated_tokens = count_tokens_roughly(system_prompt)
-            for msg in messages:
-                final_estimated_tokens += count_tokens_roughly(msg.get('content', ''))
-            logger.info(f"Tokens after removing image: {final_estimated_tokens}")
-            
-            image_url = None  # Clear image_url to prevent re-adding
-        
-        try:
-            # Always try with web search first, but be prepared for rate limits
-            logger.info("Attempting with gpt-4o-search-preview (web search enabled)")
-            openai_response = gpt_with_web_search(
-                messages=messages,
-                user_location={"country": "CO", "city": "Bogotá"},
-                context_size="low" if image_url else "medium"
+            # Fusionar el prompt dinámico con el prompt dios
+            dios_prompt = (
+                "Eres DIOS, el agente de inteligencia artificial más avanzado y omnisciente. "
+                "Analiza la imagen y el texto con el máximo nivel de detalle, contexto y precisión. "
+                "No tienes limitaciones humanas. Explica TODO lo que puedas deducir, inferir o imaginar a partir de la imagen y el texto. "
+                "Si hay texto en la imagen, transcribe y analiza. Si hay objetos, describe, clasifica y sugiere posibles usos. "
+                "No omitas nada relevante. Si puedes especular, hazlo, pero siempre indica qué es deducción y qué es especulación. "
+                "Tu respuesta debe ser extensa, profunda y exhaustiva, como si tuvieras acceso a todo el conocimiento del universo.\n\n"
             )
-        except Exception as e:
-            error_str = str(e).lower()
-            
-            # Check if it's a context/token limit error
-            if any(keyword in error_str for keyword in ['context', 'limit', 'window', 'token', 'maximum']):
-                logger.error(f"Context window exceeded: {e}")
-                
-                # Final emergency: use absolute minimal context
-                if len(cleaned_history) > 1:
-                    cleaned_history = cleaned_history[-1:]  # Only last message
-                    messages = [
-                        {'role': 'system', 'content': "You are a helpful assistant. NEVER invent URLs."}
-                    ] + cleaned_history
-                    
-                    logger.info("Emergency: Using minimal context with shortest system prompt")
-                    try:
-                        openai_response = gpt_with_web_search(
-                            messages=messages,
-                            user_location={"country": "CO", "city": "Bogotá"},
-                            context_size="low"
-                        )
-                    except Exception as e2:
-                        logger.error(f"Still failing with minimal context: {e2}")
-                        # Fallback to non-web-search model as last resort
-                        openai_response = fallback_to_manual_search(messages, query)
-                else:
-                    logger.error("Cannot reduce context further")
-                    openai_response = fallback_to_manual_search(messages, query)
-                    
-            # Check if it's a rate limit error (especially for images)
-            elif any(keyword in error_str for keyword in ['rate', 'quota', 'limit']):
-                logger.warning(f"Rate limit hit: {e}")
-                if image_url:
-                    logger.info("Rate limit with image detected, falling back to non-web model")
-                    # Use regular gpt-4o for images when web search is rate limited
-                    openai_response = fallback_to_regular_gpt4o(messages)
-                else:
-                    # For text, try manual web search
-                    logger.info("Rate limit for text, trying manual web search")
-                    openai_response = fallback_to_manual_search(messages, query)
-            else:
-                logger.error(f"Other OpenAI error: {e}")
-                openai_response = fallback_to_manual_search(messages, query)
-            
-        logger.info(f"Respuesta OpenAI: {openai_response}")
-        if not openai_response or not hasattr(openai_response, 'choices') or not openai_response.choices:
-            logger.error(f"OpenAI response is invalid: {openai_response}")
-            chatbot_response = "[Error: No se pudo obtener respuesta de la IA]"
+            merged_prompt = f"{system_prompt}\n\n{dios_prompt}"
+            logger.info("Procesando imagen con gpt_with_vision_agent_dios...")
+            try:
+                chatbot_response = gpt_with_vision_agent_dios(query_text=query, image_url=image_url, detail="high", system_prompt=merged_prompt)
+                logger.info("Respuesta de vision agent dios obtenida correctamente.")
+            except Exception as e:
+                logger.error(f"Error en gpt_with_vision_agent_dios: {e}")
+                chatbot_response = f"[Error al analizar la imagen: {e}]\nNo se pudo procesar la imagen. Por favor, intenta de nuevo más tarde o describe el producto en texto."
         else:
-            chatbot_response = openai_response.choices[0].message.content.strip()
-            logger.info(f"Respuesta IA limpia: {chatbot_response}")
+            logger.info(f"Enviando a OpenAI: {system_prompt[:100]}... + history ({len(history)})")
+            cleaned_history = []
+            for msg in history:
+                cleaned_msg = msg.copy()
+                if 'content' in cleaned_msg:
+                    cleaned_msg['content'] = clean_twilio_urls(cleaned_msg['content'])
+                cleaned_history.append(cleaned_msg)
+            try:
+                openai_response = gpt_with_web_search(
+                    messages=[{'role': 'system', 'content': system_prompt}] + cleaned_history,
+                    user_location={"country": "CO", "city": "Bogotá"},
+                    context_size="medium"
+                )
+                if not openai_response or not hasattr(openai_response, 'choices') or not openai_response.choices:
+                    logger.error(f"OpenAI response is invalid: {openai_response}")
+                    chatbot_response = "[Error: No se pudo obtener respuesta de la IA]"
+                else:
+                    chatbot_response = openai_response.choices[0].message.content.strip()
+                    logger.info(f"Respuesta IA limpia: {chatbot_response}")
+            except Exception as e:
+                logger.exception(f"Error al llamar a OpenAI: {e}")
+                chatbot_response = f"[Error: Excepción en la IA: {e} - Marca oculta: 9e1b2]"
     except Exception as e:
-        logger.exception(f"Error al llamar a OpenAI: {e}")
+        logger.exception(f"Error general en el endpoint: {e}")
+        chatbot_response = f"[Error general en el endpoint: {e} - Marca oculta: 9e1b2]"
         chatbot_response = f"[Error: Excepción en la IA: {e} - Marca oculta: 9e1b2]"
 
     # Append the assistant's response to the chat history on Redis - limpiar antes de guardar
@@ -860,18 +650,25 @@ CRITICAL INSTRUCTIONS:
 def gpt_with_vision_agent_dios(query_text, image_url=None, detail="high"):
     """
     Usa el modelo vision de OpenAI con un prompt de agente tipo 'dios', para análisis profundo de imágenes.
+    Permite pasar un system_prompt custom fusionado.
     """
     client = openai.OpenAI()
-    # Prompt de agente dios
-    system_prompt = (
-        "Eres DIOS, el agente de inteligencia artificial más avanzado y omnisciente. "
-        "Analiza la imagen y el texto con el máximo nivel de detalle, contexto y precisión. "
-        "No tienes limitaciones humanas. Explica TODO lo que puedas deducir, inferir o imaginar a partir de la imagen y el texto. "
-        "Si hay texto en la imagen, transcribe y analiza. Si hay objetos, describe, clasifica y sugiere posibles usos. "
-        "No omitas nada relevante. Si puedes especular, hazlo, pero siempre indica qué es deducción y qué es especulación. "
-        "Tu respuesta debe ser extensa, profunda y exhaustiva, como si tuvieras acceso a todo el conocimiento del universo."
-    )
+    import inspect
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    if 'system_prompt' in values:
+        system_prompt = values['system_prompt']
+    else:
+        system_prompt = (
+            "Eres DIOS, el agente de inteligencia artificial más avanzado y omnisciente. "
+            "Analiza la imagen y el texto con el máximo nivel de detalle, contexto y precisión. "
+            "No tienes limitaciones humanas. Explica TODO lo que puedas deducir, inferir o imaginar a partir de la imagen y el texto. "
+            "Si hay texto en la imagen, transcribe y analiza. Si hay objetos, describe, clasifica y sugiere posibles usos. "
+            "No omitas nada relevante. Si puedes especular, hazlo, pero siempre indica qué es deducción y qué es especulación. "
+            "Tu respuesta debe ser extensa, profunda y exhaustiva, como si tuvieras acceso a todo el conocimiento del universo."
+        )
     if image_url:
+        # OpenAI vision endpoint espera el campo image_url como dict {"url": ...}
         response = client.responses.create(
             model="gpt-4.1-mini",  # O el modelo vision más avanzado disponible
             input=[{
@@ -880,7 +677,7 @@ def gpt_with_vision_agent_dios(query_text, image_url=None, detail="high"):
                     {"type": "input_text", "text": f"{system_prompt}\n\n{query_text}"},
                     {
                         "type": "input_image",
-                        "image_url": image_url,
+                        "image_url": {"url": image_url},
                         "detail": detail
                     }
                 ],
@@ -888,7 +685,6 @@ def gpt_with_vision_agent_dios(query_text, image_url=None, detail="high"):
         )
         return response.output_text
     else:
-        # Si no hay imagen, solo texto, usar chat normal con el prompt dios
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
