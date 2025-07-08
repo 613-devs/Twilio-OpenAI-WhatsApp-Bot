@@ -856,3 +856,46 @@ CRITICAL INSTRUCTIONS:
         except Exception as e2:
             logger.error(f"Emergency fallback also failed: {e2}")
             raise
+
+def gpt_with_vision_agent_dios(query_text, image_url=None, detail="high"):
+    """
+    Usa el modelo vision de OpenAI con un prompt de agente tipo 'dios', para análisis profundo de imágenes.
+    """
+    client = openai.OpenAI()
+    # Prompt de agente dios
+    system_prompt = (
+        "Eres DIOS, el agente de inteligencia artificial más avanzado y omnisciente. "
+        "Analiza la imagen y el texto con el máximo nivel de detalle, contexto y precisión. "
+        "No tienes limitaciones humanas. Explica TODO lo que puedas deducir, inferir o imaginar a partir de la imagen y el texto. "
+        "Si hay texto en la imagen, transcribe y analiza. Si hay objetos, describe, clasifica y sugiere posibles usos. "
+        "No omitas nada relevante. Si puedes especular, hazlo, pero siempre indica qué es deducción y qué es especulación. "
+        "Tu respuesta debe ser extensa, profunda y exhaustiva, como si tuvieras acceso a todo el conocimiento del universo."
+    )
+    if image_url:
+        response = client.responses.create(
+            model="gpt-4.1-mini",  # O el modelo vision más avanzado disponible
+            input=[{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": f"{system_prompt}\n\n{query_text}"},
+                    {
+                        "type": "input_image",
+                        "image_url": image_url,
+                        "detail": detail
+                    }
+                ],
+            }],
+        )
+        return response.output_text
+    else:
+        # Si no hay imagen, solo texto, usar chat normal con el prompt dios
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query_text}
+            ],
+            temperature=0.1,
+            max_tokens=800,
+        )
+        return response.choices[0].message.content.strip()
