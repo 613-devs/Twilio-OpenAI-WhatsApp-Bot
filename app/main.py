@@ -634,7 +634,7 @@ async def whatsapp_endpoint(
 
     # Send the assistant's response back to the user via WhatsApp
     respond(From, chatbot_response)
-    return PlainTextResponse("OK", status_code=200)
+    # return PlainTextResponse("OK", status_code=200)
 
 
 def validate_twilio_credentials():
