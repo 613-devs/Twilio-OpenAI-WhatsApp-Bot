@@ -209,16 +209,28 @@ PROHIBIDO TERMINANTEMENTE:
         }
     
     try:
-        # Cambiar a gpt-4-vision-preview para pruebas de imagen
+        # Usar gpt-4o para imágenes (sin web_search_options, solo si hay imagen)
         enhanced_messages = [
             {'role': 'system', 'content': enhanced_system_prompt}
         ] + user_messages
-        # NO enviar temperature ni max_tokens a gpt-4-vision-preview
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",  # Modelo vision 4.1
-            web_search_options=web_search_options,
-            messages=enhanced_messages
+        # Detectar si hay imagen en los mensajes
+        has_image = any(
+            isinstance(m.get('content'), list) and any(i.get('type') == 'image_url' for i in m.get('content'))
+            for m in enhanced_messages
         )
+        if has_image:
+            # No enviar web_search_options, solo messages
+            response = client.chat.completions.create(
+                model="gpt-4o",  # gpt-4o soporta imágenes
+                messages=enhanced_messages
+            )
+        else:
+            # Si no hay imagen, sí enviar web_search_options
+            response = client.chat.completions.create(
+                model="gpt-4o-search-preview",
+                web_search_options=web_search_options,
+                messages=enhanced_messages
+            )
         return response
     except Exception as e:
         logger.error(f"Error with gpt-4o-search-preview: {e}")
