@@ -213,13 +213,11 @@ PROHIBIDO TERMINANTEMENTE:
         enhanced_messages = [
             {'role': 'system', 'content': enhanced_system_prompt}
         ] + user_messages
-        
+        # NO enviar temperature ni max_tokens a gpt-4o-search-preview
         response = client.chat.completions.create(
             model="gpt-4o-search-preview",  # Modelo más robusto
             web_search_options=web_search_options,
-            messages=enhanced_messages,
-            temperature=0.1,
-            max_tokens=800,
+            messages=enhanced_messages
         )
         return response
     except Exception as e:
