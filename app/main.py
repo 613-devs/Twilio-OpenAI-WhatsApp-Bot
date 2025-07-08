@@ -221,7 +221,7 @@ PROHIBIDO TERMINANTEMENTE:
         if has_image:
             # No enviar web_search_options, solo messages
             response = client.chat.completions.create(
-                model="gpt-4o",  # gpt-4o soporta imágenes
+                model="gpt-4.1",  # gpt-4o soporta imágenes
                 messages=enhanced_messages
             )
         else:
@@ -254,7 +254,7 @@ IMPORTANTE - MODO SIN BÚSQUEDA WEB:
             ] + user_messages
             
             response = client.chat.completions.create(
-                model="gpt-4o",  # Usar gpt-4o para mejor calidad en fallback
+                model="gpt-4.1",  # Usar gpt-4o para mejor calidad en fallback
                 messages=fallback_messages,
                 temperature=0.1,
                 max_tokens=800,
