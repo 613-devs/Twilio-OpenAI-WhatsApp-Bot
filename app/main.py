@@ -209,13 +209,13 @@ PROHIBIDO TERMINANTEMENTE:
         }
     
     try:
-        # gpt-4o-search-preview SÍ soporta web search + imágenes sin rate limits
+        # Cambiar a gpt-4-vision-preview para pruebas de imagen
         enhanced_messages = [
             {'role': 'system', 'content': enhanced_system_prompt}
         ] + user_messages
-        # NO enviar temperature ni max_tokens a gpt-4o-search-preview
+        # NO enviar temperature ni max_tokens a gpt-4-vision-preview
         response = client.chat.completions.create(
-            model="gpt-4o-search-preview",  # Modelo más robusto
+            model="gpt-4-vision-preview",  # Modelo vision 4.1
             web_search_options=web_search_options,
             messages=enhanced_messages
         )
