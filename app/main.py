@@ -393,19 +393,37 @@ async def whatsapp_endpoint(
     # ------------------ NOURA MVP: Product Analysis Logic ------------------
     # Check if the message is a product query before sending to GPT
     try:
-        analysis_result = await analyze_product(Body)
+        try:
+        # Import at the top of the try block
+        from app.services.product_analyzer import format_detailed_analysis
+        from app.services.redis_utils import get_latest_analysis, store_latest_analysis
+        
+        analysis_result = await analyze_product(query)
+        
+        # Check if user is asking "why" for a previous analysis
+        if query.strip().lower() in ['por qué', 'porque', 'explica', 'why']:
+            last_result = get_latest_analysis(phone_no)
+            if last_result and last_result.get('found'):
+                detailed_response = format_detailed_analysis(last_result)
+                respond(From, detailed_response)
+                return PlainTextResponse("OK", status_code=200)
+        
+        # Check if it's a greeting
         if analysis_result.get('is_greeting'):
             pass  # Let GPT handle greetings and general queries
+        
+        # Check if product was found
         elif analysis_result.get('found'):
             evidence_based_response = format_product_analysis(analysis_result)
             if evidence_based_response:
                 respond(From, evidence_based_response)
-                logger.info(f"Sent evidence-based response for query: '{Body}'")
+                # Guardar el análisis en Redis para poder usarlo luego
+                store_latest_analysis(phone_no, analysis_result)
+                logger.info(f"Sent evidence-based response for query: '{query}'")
                 return PlainTextResponse("OK", status_code=200)
+                
     except Exception as e:
-        logger.error(f"Error during product analysis: {e}")
-    # --- End of NOURA MVP Logic ---
-    chat_session_id = phone_no
+        logger.error(f"Error during product analysis: {e}")    chat_session_id = phone_no
     # Retrieve chat history from Redis
     history = get_cookies(redis_conn, f'whatsapp_twilio_demo_{chat_session_id}_history') or []
     if history:
