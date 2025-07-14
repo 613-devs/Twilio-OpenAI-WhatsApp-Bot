@@ -19,7 +19,7 @@ from app.prompts import get_google_doc_content
 from app.openai_utils import gpt_without_functions, summarise_conversation
 from app.redis_utils import redis_conn
 from app.logger_utils import logger
-
+from app.services.product_analyzer import analyze_product, format_product_analysis # 
 # Suprimir warnings de Pydantic
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
@@ -390,8 +390,22 @@ async def whatsapp_endpoint(
         query = "Recibí tu mensaje, pero no pude procesar el contenido. Por favor envía texto, una imagen o un audio."
 
     phone_no = From.replace('whatsapp:+', '')
+    # ------------------ NOURA MVP: Product Analysis Logic ------------------
+    # Check if the message is a product query before sending to GPT
+    try:
+        analysis_result = await analyze_product(Body)
+        if analysis_result.get('is_greeting'):
+            pass  # Let GPT handle greetings and general queries
+        elif analysis_result.get('found'):
+            evidence_based_response = format_product_analysis(analysis_result)
+            if evidence_based_response:
+                respond(From, evidence_based_response)
+                logger.info(f"Sent evidence-based response for query: '{Body}'")
+                return PlainTextResponse("OK", status_code=200)
+    except Exception as e:
+        logger.error(f"Error during product analysis: {e}")
+    # --- End of NOURA MVP Logic ---
     chat_session_id = phone_no
-
     # Retrieve chat history from Redis
     history = get_cookies(redis_conn, f'whatsapp_twilio_demo_{chat_session_id}_history') or []
     if history:
