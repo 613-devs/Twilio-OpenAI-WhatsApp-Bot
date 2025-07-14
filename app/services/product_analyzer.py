@@ -291,3 +291,18 @@ Brand: {product['brand']}
     response += "\n📊 Data: Open Food Facts + FDA"
     
     return response
+    def format_clean_recommendation(score: int, confidence: str, brand: str, price: str, url: str) -> str:
+    """
+    Retorna una recomendación limpia, visual y con enlace embebido.
+    """
+    # Color visual
+    if score >= 90:
+        emoji = "🟢"
+    elif score >= 75:
+        emoji = "🟡"
+    elif score >= 50:
+        emoji = "🟠"
+    else:
+        emoji = "🔴"
+
+    return f"{emoji} {score}/100 ({confidence}) {brand}, ~€{price} [Visit brand]({url})"
