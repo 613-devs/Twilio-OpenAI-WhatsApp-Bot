@@ -1,0 +1,261 @@
+"""
+Quick integration to add real product data to your existing WhatsApp bot
+This bypasses GPT hallucination for product queries
+"""
+
+import aiohttp
+import asyncio
+from typing import Dict, Optional
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+class ProductAnalyzer:
+    """Analyzes products using real data sources"""
+    
+    def __init__(self):
+        self.off_base_url = "https://world.openfoodfacts.org/api/v2"
+        self.fda_base_url = "https://api.fda.gov"
+        
+    async def analyze(self, query: str) -> Dict:
+        """
+        Main analysis function that coordinates all data sources
+        """
+        # Clean query
+        query = query.strip().lower()
+        
+        # Check if it's a product query (not a greeting or general question)
+        greetings = ['hi', 'hello', 'hola', 'hey', 'good', 'morning', 'help', 'ayuda']
+        if any(query.startswith(g) for g in greetings):
+            return {'found': False, 'is_greeting': True}
+        
+        # Gather data from sources
+        results = await asyncio.gather(
+            self._get_off_data(query),
+            self._check_fda_recalls(query),
+            return_exceptions=True
+        )
+        
+        off_data, fda_data = results
+        
+        # If no data found, return not found
+        if isinstance(off_data, Exception) or not off_data.get('found'):
+            return {'found': False, 'query': query}
+        
+        # Calculate scores
+        scores = self._calculate_scores(off_data, fda_data)
+        
+        return {
+            'found': True,
+            'product': off_data,
+            'fda': fda_data if not isinstance(fda_data, Exception) else None,
+            'scores': scores,
+            'query': query
+        }
+    
+    async def _get_off_data(self, query: str) -> Dict:
+        """Get data from Open Food Facts"""
+        async with aiohttp.ClientSession() as session:
+            try:
+                # Try barcode first if query is numeric
+                if query.replace(' ', '').isdigit():
+                    url = f"{self.off_base_url}/product/{query}.json"
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data.get('status') == 1:
+                                return self._process_off_product(data['product'])
+                
+                # Otherwise search by name
+                params = {
+                    'search_terms': query,
+                    'search_simple': 1,
+                    'json': 1,
+                    'page_size': 1,
+                    'fields': 'product_name,brands,nutriscore_grade,ecoscore_grade,labels_tags,ingredients_from_palm_oil_n,nova_group'
+                }
+                
+                async with session.get(f"{self.off_base_url}/search.json", params=params) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('products') and len(data['products']) > 0:
+                            return self._process_off_product(data['products'][0])
+                            
+            except Exception as e:
+                logger.error(f"OFF API error: {e}")
+                
+        return {'found': False}
+    
+    def _process_off_product(self, product: Dict) -> Dict:
+        """Process Open Food Facts product data"""
+        return {
+            'found': True,
+            'name': product.get('product_name', 'Unknown'),
+            'brand': product.get('brands', ''),
+            'nutriscore': product.get('nutriscore_grade', 'unknown'),
+            'ecoscore': product.get('ecoscore_grade', 'unknown'),
+            'nova': product.get('nova_group', 0),
+            'labels': product.get('labels_tags', []),
+            'is_organic': 'en:organic' in product.get('labels_tags', []),
+            'is_vegan': 'en:vegan' in product.get('labels_tags', []),
+            'is_palm_oil_free': product.get('ingredients_from_palm_oil_n', 0) == 0
+        }
+    
+    async def _check_fda_recalls(self, query: str) -> Dict:
+        """Check FDA for recalls"""
+        async with aiohttp.ClientSession() as session:
+            try:
+                params = {
+                    'search': f'"{query}"',
+                    'limit': 5
+                }
+                
+                url = f"{self.fda_base_url}/food/enforcement.json"
+                async with session.get(url, params=params) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('results'):
+                            return {
+                                'has_recalls': True,
+                                'recall_count': len(data['results']),
+                                'latest_recall': data['results'][0].get('reason_for_recall', '')
+                            }
+                            
+            except Exception as e:
+                logger.error(f"FDA API error: {e}")
+                
+        return {'has_recalls': False}
+    
+    def _calculate_scores(self, off_data: Dict, fda_data: Optional[Dict]) -> Dict:
+        """Calculate NOURA scores based on real data"""
+        
+        # Health Score
+        health = 70  # Base score
+        
+        # Nutriscore impact
+        nutriscore_map = {'a': 95, 'b': 80, 'c': 60, 'd': 40, 'e': 20}
+        if off_data.get('nutriscore') in nutriscore_map:
+            health = nutriscore_map[off_data['nutriscore']]
+        
+        # FDA recall penalty
+        if fda_data and fda_data.get('has_recalls'):
+            health -= 30
+        
+        # Environmental Score
+        environmental = 60  # Base
+        
+        # Ecoscore impact
+        ecoscore_map = {'a': 95, 'b': 80, 'c': 60, 'd': 40, 'e': 20}
+        if off_data.get('ecoscore') in ecoscore_map:
+            environmental = ecoscore_map[off_data['ecoscore']]
+        
+        # Palm oil penalty
+        if not off_data.get('is_palm_oil_free', True):
+            environmental -= 15
+        
+        # Social Score
+        social = 50
+        if off_data.get('is_organic'):
+            social += 30
+        
+        # Animal Welfare Score
+        animal = 50
+        if off_data.get('is_vegan'):
+            animal = 100
+        
+        # Overall score
+        overall = int(
+            health * 0.40 +
+            environmental * 0.30 +
+            social * 0.15 +
+            animal * 0.15
+        )
+        
+        return {
+            'overall': max(0, min(100, overall)),
+            'health': max(0, min(100, health)),
+            'environmental': max(0, min(100, environmental)),
+            'social': max(0, min(100, social)),
+            'animal': max(0, min(100, animal))
+        }
+
+
+# Singleton instance
+product_analyzer = ProductAnalyzer()
+
+async def analyze_product(query: str) -> Dict:
+    """Public function to analyze products"""
+    return await product_analyzer.analyze(query)
+
+
+def format_product_analysis(analysis: Dict) -> str:
+    """Format analysis results for WhatsApp"""
+    
+    if not analysis.get('found'):
+        return None
+    
+    product = analysis['product']
+    scores = analysis['scores']
+    
+    # Determine emoji based on overall score
+    if scores['overall'] >= 80:
+        emoji = "🟢"
+        rating = "Excellent choice!"
+    elif scores['overall'] >= 60:
+        emoji = "🟡"
+        rating = "Good option"
+    elif scores['overall'] >= 40:
+        emoji = "🟠"
+        rating = "Consider alternatives"
+    else:
+        emoji = "🔴"
+        rating = "Poor choice"
+    
+    # Build response
+    response = f"""NOURA: EVIDENCE-BASED WELLBEING™
+
+{product['name']}
+Brand: {product['brand']}
+
+{emoji} Overall Score: {scores['overall']}/100
+{rating}
+
+📊 Detailed Analysis:
+🧪 Health: {scores['health']}/100
+🌱 Environment: {scores['environmental']}/100
+👥 Social Justice: {scores['social']}/100
+🐾 Animal Welfare: {scores['animal']}/100
+
+"""
+    
+    # Add key factors
+    key_factors = []
+    
+    if product.get('nutriscore'):
+        key_factors.append(f"Nutri-Score: {product['nutriscore'].upper()}")
+    
+    if product.get('ecoscore'):
+        key_factors.append(f"Eco-Score: {product['ecoscore'].upper()}")
+    
+    if analysis.get('fda', {}).get('has_recalls'):
+        key_factors.append("⚠️ FDA Recalls Found!")
+    
+    if product.get('is_vegan'):
+        key_factors.append("✅ Vegan")
+    
+    if product.get('is_organic'):
+        key_factors.append("✅ Organic")
+    
+    if not product.get('is_palm_oil_free'):
+        key_factors.append("⚠️ Contains Palm Oil")
+    
+    if key_factors:
+        response += "Key Factors:\n"
+        for factor in key_factors[:5]:  # Limit to 5 factors
+            response += f"• {factor}\n"
+    
+    response += "\n💡 Reply 'alternatives' for better options"
+    response += "\n📊 Data: Open Food Facts + FDA"
+    
+    return response
