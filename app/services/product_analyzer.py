@@ -127,60 +127,92 @@ class ProductAnalyzer:
                 
         return {'has_recalls': False}
     
-    def _calculate_scores(self, off_data: Dict, fda_data: Optional[Dict]) -> Dict:
-        """Calculate NOURA scores based on real data"""
-        
-        # Health Score
-        health = 70  # Base score
-        
-        # Nutriscore impact
-        nutriscore_map = {'a': 95, 'b': 80, 'c': 60, 'd': 40, 'e': 20}
-        if off_data.get('nutriscore') in nutriscore_map:
-            health = nutriscore_map[off_data['nutriscore']]
-        
-        # FDA recall penalty
-        if fda_data and fda_data.get('has_recalls'):
-            health -= 30
-        
-        # Environmental Score
-        environmental = 60  # Base
-        
-        # Ecoscore impact
-        ecoscore_map = {'a': 95, 'b': 80, 'c': 60, 'd': 40, 'e': 20}
-        if off_data.get('ecoscore') in ecoscore_map:
-            environmental = ecoscore_map[off_data['ecoscore']]
-        
-        # Palm oil penalty
-        if not off_data.get('is_palm_oil_free', True):
-            environmental -= 15
-        
-        # Social Score
-        social = 50
-        if off_data.get('is_organic'):
-            social += 30
-        
-        # Animal Welfare Score
-        animal = 50
-        if off_data.get('is_vegan'):
-            animal = 100
-        
-        # Overall score
-        overall = int(
-            health * 0.40 +
-            environmental * 0.30 +
-            social * 0.15 +
-            animal * 0.15
-        )
-        
-        return {
-            'overall': max(0, min(100, overall)),
-            'health': max(0, min(100, health)),
-            'environmental': max(0, min(100, environmental)),
-            'social': max(0, min(100, social)),
-            'animal': max(0, min(100, animal))
+        }
+def _calculate_scores(self, off_data: Dict, fda_data: Optional[Dict]) -> Dict:
+    """Calculate NOURA scores based on real data"""
+
+    # Health Score
+    health = 70  # Base score
+    nutriscore_map = {'a': 95, 'b': 80, 'c': 60, 'd': 40, 'e': 20}
+    if off_data.get('nutriscore') in nutriscore_map:
+        health = nutriscore_map[off_data['nutriscore']]
+    if fda_data and fda_data.get('has_recalls'):
+        health -= 30
+
+    # Environmental Score
+    environmental = 60  # Base
+    ecoscore_map = {'a': 95, 'b': 80, 'c': 60, 'd': 40, 'e': 20}
+    if off_data.get('ecoscore') in ecoscore_map:
+        environmental = ecoscore_map[off_data['ecoscore']]
+    if not off_data.get('is_palm_oil_free', True):
+        environmental -= 15
+
+    # Social Score
+    social = 50
+    if off_data.get('is_organic'):
+        social += 30
+
+    # Animal Welfare Score
+    animal = 50
+    if off_data.get('is_vegan'):
+        animal = 100
+
+    # Overall score
+    overall = int(
+        health * 0.40 +
+        environmental * 0.30 +
+        social * 0.15 +
+        animal * 0.15
+    )
+
+    # Add reasons for each dimension
+    reasons = self._generate_score_reasons(off_data, fda_data)
+
+    return {
+        'overall': max(0, min(100, overall)),
+        'health': max(0, min(100, health)),
+        'environmental': max(0, min(100, environmental)),
+        'social': max(0, min(100, social)),
+        'animal': max(0, min(100, animal)),
+        'health_reason': reasons['health'],
+        'env_reason': reasons['environmental'],
+        'social_reason': reasons['social'],
+        'animal_reason': reasons['animal']
+    }
+    def _generate_score_reasons(self, off_data: Dict, fda_data: Optional[Dict]) -> Dict:
+        reasons = {
+            'health': "Puntuación base de salud.",
+            'environmental': "Puntuación base ambiental.",
+            'social': "Puntuación social sin datos específicos.",
+            'animal': "Puntuación animal sin datos específicos."
         }
 
+        # Health reason
+        if 'nutriscore' in off_data:
+            reasons['health'] = f"Nutriscore reportado como {off_data['nutriscore'].upper()}."
+        if fda_data and fda_data.get('has_recalls'):
+            reasons['health'] += " Penalización por retiro del mercado (FDA recall)."
 
+        # Environmental reason
+        if off_data.get('carbon_footprint'):
+            reasons['environmental'] = "Tiene datos de huella de carbono reportados."
+        elif off_data.get('eco_score'):
+            reasons['environmental'] = f"Eco-score reportado como {off_data['eco_score'].upper()}."
+
+        # Social reason
+        if off_data.get('is_fair_trade'):
+            reasons['social'] = "Certificado de comercio justo."
+        elif off_data.get('brand_ethics_score'):
+            reasons['social'] = f"Marca con puntuación ética de {off_data['brand_ethics_score']}."
+
+        # Animal reason
+        if off_data.get('is_vegan'):
+            reasons['animal'] = "Producto etiquetado como vegano."
+
+        return reasons
+
+# Singleton instance
+product_analyzer = ProductAnalyzer()
 # Singleton instance
 product_analyzer = ProductAnalyzer()
 
