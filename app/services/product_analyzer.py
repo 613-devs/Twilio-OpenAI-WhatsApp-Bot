@@ -26,9 +26,12 @@ class ProductAnalyzer:
         query = query.strip().lower()
         
         # Check if it's a product query (not a greeting or general question)
-        greetings = ['hi', 'hello', 'hola', 'hey', 'good', 'morning', 'help', 'ayuda']
-        if any(query.startswith(g) for g in greetings):
-            return {'found': False, 'is_greeting': True}
+        greetings_patterns = [
+    r'^(hi|hello|hey|hola|bonjour|salut|buenos días|buenas tardes|ayuda|help|¿qué más|que más|quiubo|¿qué me cuentas|qué me cuentas)',
+]
+for pattern in greetings_patterns:
+    if re.search(pattern, query, re.IGNORECASE):
+        return {'found': False, 'is_greeting': True}
         
         # Gather data from sources
         results = await asyncio.gather(
@@ -229,8 +232,7 @@ class ProductAnalyzer:
 
 # Singleton instance
 product_analyzer = ProductAnalyzer()
-# Singleton instance
-product_analyzer = ProductAnalyzer()
+
     def _generate_score_reasons(self, off_data: Dict, fda_data: Optional[Dict]) -> Dict:
         reasons = {
             'health': "Puntuación base de salud.",
@@ -273,7 +275,7 @@ async def analyze_product(query: str) -> Dict:
     return await product_analyzer.analyze(query)
 
 
-def format_product_analysis(analysis: Dict) -> str:
+   def format_product_analysis(analysis: Dict) -> str:
     """Format analysis results for WhatsApp"""
     
     if not analysis.get('found'):
