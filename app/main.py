@@ -408,9 +408,39 @@ async def whatsapp_endpoint(
                 respond(From, detailed_response)
                 return PlainTextResponse("OK", status_code=200)
         
-        # Check if it's a greeting
-        if analysis_result.get('is_greeting'):
-            pass  # Let GPT handle greetings and general queries
+        # Check if it's a greeting  ➜  ENVÍA SALUDO INSTITUCIONAL
+if analysis_result.get('is_greeting'):
+    user_text = query.strip().lower()
+
+    # --- Español ---
+    if user_text.startswith(("hola", "buenos", "buenas", "qué", "que", "oye")):
+        greeting_msg = """NOURA: EVIDENCE-BASED WELLBEING™
+
+¡Hola! Soy NOURA, tu asistente de consumo consciente 🌿
+Pregunta rápida: ¿en qué país te encuentras?
+Esto me ayuda a mostrarte productos locales y precios en tu moneda 📍
+¡Escribe solo el nombre del país!"""
+
+    # --- Français ---
+    elif user_text.startswith(("bonjour", "salut", "coucou")):
+        greeting_msg = """NOURA: EVIDENCE-BASED WELLBEING™
+
+Bonjour ! Je suis NOURA, ton assistante de consommation responsable 🌿
+Petite question : dans quel pays es‑tu ?
+Cela m’aide à trouver des produits locaux et afficher les bons prix 📍
+Écris simplement le nom de ton pays !"""
+
+    # --- English (default) ---
+    else:
+        greeting_msg = """NOURA: EVIDENCE-BASED WELLBEING™
+
+Hi! I'm NOURA, your conscious consumption assistant 🌿
+Quick question – which country are you in?
+This helps me find local products & show adequate prices 📍
+Just type your country name!"""
+
+    respond(From, greeting_msg)
+    return PlainTextResponse("OK", status_code=200)
         
         # Check if product was found
         elif analysis_result.get('found'):
