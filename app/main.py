@@ -628,6 +628,41 @@ Just type your country name!"""
         logger.info(f"Estimated tokens before sending to OpenAI: {estimated_tokens}")
         
         try:
+            from app.redis_utils import get_conversation_context, save_conversation_context
+from datetime import datetime, timedelta
+
+# Detectar si el mensaje del usuario es una continuación
+def is_follow_up(msg):
+    follow_up_keywords = [
+        "es de", "marca", "vegano", "sin fragancia", "contiene",
+        "se llama", "pero", "no", "sí", "también", "solo", "tiene", "usa"
+    ]
+    return (
+        len(msg.split()) <= 6 and
+        any(k in msg.lower() for k in follow_up_keywords)
+    )
+
+# Obtener datos del usuario
+user_phone = incoming_phone_number  # o como lo llames
+previous_context = get_conversation_context(user_phone)
+previous_input = previous_context.get("last_user_input", "")
+previous_timestamp = previous_context.get("timestamp")
+is_recent = previous_timestamp and datetime.utcnow() - datetime.fromisoformat(previous_timestamp) < timedelta(minutes=5)
+
+# Si es continuación reciente, concatenar
+if is_follow_up(user_input) and is_recent:
+    user_input = (
+        f"The user previously asked: '{previous_input}'. "
+        f"They now added: '{user_input}'. "
+        f"Please reanalyze the product or clarify your response using both parts."
+    )
+
+# Generar respuesta normalmente con OpenAI (lo que ya haces)
+# ...
+# chatbot_response = tu respuesta
+
+# Guardar nuevo contexto
+save_conversation_context(user_phone, user_input, chatbot_response)
             openai_response = gpt_with_web_search(
                 messages=messages,
                 user_location={"country": "CO", "city": "Bogotá"},
