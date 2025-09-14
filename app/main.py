@@ -414,30 +414,19 @@ if analysis_result.get('is_greeting'):
 
     # --- Español ---
     if user_text.startswith(("hola", "buenos", "buenas", "qué", "que", "oye")):
-        greeting_msg = """NOURA: EVIDENCE-BASED WELLBEING™
-
-¡Hola! Soy NOURA, tu asistente de consumo consciente 🌿
-Pregunta rápida: ¿en qué país te encuentras?
-Esto me ayuda a mostrarte productos locales y precios en tu moneda 📍
-¡Escribe solo el nombre del país!"""
+        greeting_msg = greeting_msg_es
 
     # --- Français ---
     elif user_text.startswith(("bonjour", "salut", "coucou")):
-        greeting_msg = """NOURA: EVIDENCE-BASED WELLBEING™
+        greeting_msg = greeting_msg_fr
 
-Bonjour ! Je suis NOURA, ton assistante de consommation responsable 🌿
-Petite question : dans quel pays es‑tu ?
-Cela m’aide à trouver des produits locaux et afficher les bons prix 📍
-Écris simplement le nom de ton pays !"""
+    # --- English ---
+    elif user_text.startswith(("hi", "hello", "hey", "hey there", "hello noura", "hi noura")):
+        greeting_msg = greeting_msg_en
 
-    # --- English (default) ---
+    # --- Fallback (default to English) ---
     else:
-        greeting_msg = """NOURA: EVIDENCE-BASED WELLBEING™
-
-Hi! I'm NOURA, your conscious consumption assistant 🌿
-Quick question – which country are you in?
-This helps me find local products & show adequate prices 📍
-Just type your country name!"""
+        greeting_msg = greeting_msg_en
 
     respond(From, greeting_msg)
     return PlainTextResponse("OK", status_code=200)
