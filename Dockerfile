@@ -2,7 +2,7 @@
 FROM python:3.10.5-slim-bullseye
 
 # Set the working directory in the container
-WORKDIR /app
+WORKDIR /
 
 # Copy the requirements file
 COPY requirements.txt .
