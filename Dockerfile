@@ -23,8 +23,8 @@ COPY . .
 # Expose the port that the Flask application will run on
 EXPOSE 3002
 
-# Add a volume to the container
-VOLUME /app/logs
+# Add a volume to the container - REMOVED FOR RAILWAY COMPATIBILITY
+# VOLUME /app/logs
 
 # Run the RQ worker in the background
-CMD gunicorn app.main:app --log-level info --workers 2 --worker-class "uvicorn.workers.UvicornWorker" --bind 0.0.0.0:3002 --timeout 240
+CMD gunicorn app.main_v2:app --log-level info --workers 2 --worker-class "uvicorn.workers.UvicornWorker" --bind 0.0.0.0:3002 --timeout 240
