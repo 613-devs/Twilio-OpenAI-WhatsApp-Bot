@@ -1,29 +1,25 @@
 # Use the official Python image as the base image
 FROM python:3.10.5-slim-bullseye
 
-# Set the working directory in the container
-WORKDIR /
+# Set the working directory to /app
+WORKDIR /app
+
+# Copy the application code into the container
+COPY ./app .
 
 # Copy the requirements file
 COPY requirements.txt .
 
 # Install gcc
 RUN apt-get update --allow-insecure-repositories \
-    && apt-get install -y gcc
-
-RUN apt-get update && apt-get install -y build-essential
+&& apt-get install -y gcc
 
 # Install the Python dependencies
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
-
-# Copy the application code into the container
-COPY . .
+&& pip install --no-cache-dir -r requirements.txt
 
 # Expose the port that the Flask application will run on
 EXPOSE 3002
 
-# Add a volume to the container - REMOVED FOR RAILWAY COMPATIBILITY
-
-# Run the RQ worker in the background
-CMD gunicorn app.main_v2:app --log-level info --workers 2 --worker-class "uvicorn.workers.UvicornWorker" --bind 0.0.0.0:3002 --timeout 240
+# Run the gunicorn server in the background
+CMD gunicorn main_v2:app --log-level info --workers 2 --worker-class "uvicorn.workers.UvicornWorker" --bind 0.0.0.0:3002 --timeout 240
